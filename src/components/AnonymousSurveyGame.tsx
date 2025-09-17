@@ -7,11 +7,13 @@ import {
   CheckCircle,
   XCircle,
   RotateCcw,
+  Shuffle,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { gameService, type GameQuestion } from "../services/gameService";
 import type { Participant } from "../lib/supabase";
 import { roomService } from "../services/roomService";
+import { anonymousYesNoTopics, pickRandom } from "../services/topics";
 
 interface AnonymousSurveyGameProps {
   roomId: string;
@@ -406,7 +408,7 @@ export function AnonymousSurveyGame({
                 ナイショのアンケート
               </h2>
             </div>
-            <button
+            <button type="button"
               onClick={onClose}
               className="bg-white text-black p-1.5 sm:p-2 border-2 border-black hover:bg-gray-100 transition-colors"
             >
@@ -450,7 +452,7 @@ export function AnonymousSurveyGame({
               </div>
 
               <div className="text-center">
-                <button
+                <button type="button"
                   onClick={handleBecomeQuestioner}
                   disabled={!currentParticipant}
                   className="bg-yellow-400 text-black py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] sm:hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] sm:hover:translate-x-[2px] sm:hover:translate-y-[2px]"
@@ -494,7 +496,13 @@ export function AnonymousSurveyGame({
                     <span className="text-sm text-gray-600">
                       {currentQuestion.length}/200文字
                     </span>
-                    <button
+                    <button type="button"
+                      onClick={() => setCurrentQuestion(pickRandom(anonymousYesNoTopics))}
+                      className="bg-white text-black py-2 px-3 border-2 border-black font-bold hover:bg-gray-100 transition-colors text-sm sm:text-base mr-2"
+                    >
+                      <Shuffle className="h-4 w-4 inline mr-1" /> ランダム質問
+                    </button>
+                    <button type="button"
                       onClick={handleSubmitQuestion}
                       disabled={!currentQuestion.trim()}
                       className="bg-red-500 text-white py-2 px-4 sm:px-6 border-2 border-black font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
@@ -558,7 +566,7 @@ export function AnonymousSurveyGame({
                     あなたの回答を選んでください
                   </h4>
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4">
-                    <button
+                    <button type="button"
                       onClick={() => handleAnswer(true)}
                       disabled={
                         !currentParticipant ||
@@ -570,7 +578,7 @@ export function AnonymousSurveyGame({
                       <CheckCircle className="h-6 w-6 sm:h-8 sm:w-8" />
                       YES
                     </button>
-                    <button
+                    <button type="button"
                       onClick={() => handleAnswer(false)}
                       disabled={
                         !currentParticipant ||
@@ -609,7 +617,7 @@ export function AnonymousSurveyGame({
               {allAnswered &&
                 gameState.questionerId === currentParticipant?.id && (
                   <div className="text-center">
-                    <button
+                    <button type="button"
                       onClick={handleShowResults}
                       className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors"
                     >
@@ -653,7 +661,7 @@ export function AnonymousSurveyGame({
                 <p className="text-base sm:text-lg text-gray-700">
                   一体だれが「YES」を押したんでしょうね？🤔
                 </p>
-                <button
+                <button type="button"
                   onClick={handleNewRound}
                   className="bg-green-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-green-600 transition-colors flex items-center gap-2 sm:gap-3 mx-auto"
                 >

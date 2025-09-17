@@ -7,11 +7,13 @@ import {
   CheckCircle,
   RotateCcw,
   Target,
+  Shuffle,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { gameService, type RankingQuestion } from "../services/gameService";
 import type { Participant } from "../lib/supabase";
 import { roomService } from "../services/roomService";
+import { rankingTopics, pickRandom } from "../services/topics";
 
 interface RankingGameProps {
   roomId: string;
@@ -405,6 +407,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               </h2>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="bg-white text-black p-1.5 sm:p-2 border-2 border-black hover:bg-gray-100 transition-colors"
             >
@@ -464,6 +467,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
               <div className="text-center">
                 <button
+                  type="button"
                   onClick={handleBecomeQuestioner}
                   disabled={!currentParticipant}
                   className="bg-yellow-400 text-black py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] sm:hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] sm:hover:translate-x-[2px] sm:hover:translate-y-[2px]"
@@ -505,6 +509,16 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
                       {currentQuestion.length}/200文字
                     </span>
                     <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentQuestion(pickRandom(rankingTopics))
+                      }
+                      className="bg-white text-black py-2 px-3 border-2 border-black font-bold hover:bg-gray-100 transition-colors text-sm sm:text-base mr-2"
+                    >
+                      <Shuffle className="h-4 w-4 inline mr-1" /> ランダムお題
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleSubmitQuestion}
                       disabled={!currentQuestion.trim()}
                       className="bg-red-500 text-white py-2 px-4 sm:px-6 border-2 border-black font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
@@ -568,6 +582,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
                       (_, i) => i + 1
                     ).map((rank) => (
                       <button
+                        type="button"
                         key={rank}
                         onClick={() => setSelectedRank(rank)}
                         className={`py-3 sm:py-4 px-4 sm:px-6 border-2 sm:border-3 border-black font-bold text-base sm:text-lg transition-colors ${
@@ -583,6 +598,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
                   <div className="text-center">
                     <button
+                      type="button"
                       onClick={handleSubmitRank}
                       disabled={selectedRank === null}
                       className="bg-green-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] sm:hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] sm:hover:translate-x-[2px] sm:hover:translate-y-[2px]"
@@ -612,6 +628,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
                 gameState.questionerId === currentParticipant?.id && (
                   <div className="text-center">
                     <button
+                      type="button"
                       onClick={handleShowResults}
                       className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors"
                     >
@@ -691,6 +708,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
               <div className="text-center space-y-4 px-4">
                 <button
+                  type="button"
                   onClick={handleNewRound}
                   className="bg-green-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-green-600 transition-colors flex items-center gap-2 sm:gap-3 mx-auto"
                 >
