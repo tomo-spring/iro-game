@@ -59,6 +59,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   const [responseCounts, setResponseCounts] = useState<{[questionId: string]: number}>({});
   const [lastSyncTime, setLastSyncTime] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPeriodicSyncing, setIsPeriodicSyncing] = useState(false);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -93,7 +94,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     // 500ms以内の重複リクエストを防ぐ
     if (now - lastSyncTime < 500 || isSyncing) return;
     
-    setIsSyncing(true);
+    setIsPeriodicSyncing(true);
     try {
       const responses = await gameService.getSynchroResponses(questionId);
       const count = responses.length;
@@ -119,9 +120,9 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     } catch (error) {
       console.error('Failed to sync synchro response counts:', error);
     } finally {
-      setIsSyncing(false);
+      setIsPeriodicSyncing(false);
     }
-  }, [lastSyncTime, isSyncing]);
+  }, [lastSyncTime, isSyncing, isPeriodicSyncing]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -270,7 +271,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       })
       .on("broadcast", { event: "synchro_answer_submitted" }, (payload) => {
         if (payload.payload) {
-          if (isSyncing) return; // 同期中は処理をスキップ
+          if (isSyncing || isPeriodicSyncing) return; // 同期中は処理をスキップ
           
           // ローカル状態を即座に更新
           setGameState((prev) => ({
@@ -282,7 +283,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
           }));
           
           // 回答数カウントも更新
-          if (!isSyncing) {
+          if (!isSyncing && !isPeriodicSyncing) {
             setTimeout(() => {
               syncResponseCounts(gameState.questionId);
             }, 200);
@@ -330,16 +331,16 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
 
     // 定期的な回答数同期（5秒間隔）
     const syncInterval = setInterval(() => {
-      if (gameState.questionId && gameState.phase === "answering" && !isSyncing) {
+      if (gameState.questionId && gameState.phase === "answering" && !isSyncing && !isPeriodicSyncing) {
         syncResponseCounts(gameState.questionId);
       }
-    }, 3000); // 3秒間隔に短縮
+    }, 5000); // 5秒間隔に戻す
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(syncInterval);
     };
-  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses, isSyncing]);
+  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses, isSyncing, isPeriodicSyncing]);
 
   const handleBecomeGM = async () => {
     if (!currentParticipant) return;
@@ -620,7 +621,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   const isSuccess = uniqueAnswers.size === 1 && responseValues.length > 0;
   const mostCommonAnswer = responseValues.length > 0 ? responseValues[0] : "";
 
-  if (loading || isRestoringState || isSyncing) {
+  if (loading || isRestoringState) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -630,7 +631,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
           <p className="text-black font-bold text-lg">
-            {loading ? "ゲームを準備中..." : isRestoringState ? "ゲーム状態を復元中..." : "同期中..."}
+            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
           </p>
         </div>
       </div>
