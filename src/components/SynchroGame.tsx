@@ -139,6 +139,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     };
     
     localStorage.setItem(`synchro_state_${roomId}`, JSON.stringify(stateToSave));
+  }, [gameState, currentQuestion, currentAnswer, hasAnswered, isGM, currentGameSessionId, roomId]);
 
   // リアルタイム同期
   useEffect(() => {

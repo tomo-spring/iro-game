@@ -148,6 +148,7 @@ export function AnonymousSurveyGame({
       `anonymous_survey_state_${roomId}`,
       JSON.stringify(stateToSave)
     );
+  }, [gameState, currentQuestion, hasAnswered, isQuestioner, currentGameSessionId, roomId]);
 
   // リアルタイム同期
   useEffect(() => {

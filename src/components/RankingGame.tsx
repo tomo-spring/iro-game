@@ -143,6 +143,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     };
     
     localStorage.setItem(`ranking_state_${roomId}`, JSON.stringify(stateToSave));
+  }, [gameState, currentQuestion, selectedRank, hasAnswered, isQuestioner, currentGameSessionId, roomId]);
 
   // リアルタイム同期
   useEffect(() => {

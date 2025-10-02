@@ -183,6 +183,7 @@ export function WerewolfGame({
     };
     
     localStorage.setItem(`werewolf_state_${roomId}`, JSON.stringify(stateToSave));
+  }, [gameState, selectedVote, hasVoted, reverseMode, werewolfGuess, phaseButtonClicks, hasClickedPhaseButton, roomId]);
 
   const handleGameStart = useCallback(
     async (sessionId: string, reverseMode: boolean) => {
