@@ -218,8 +218,8 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   useEffect(() => {
     if (!roomId) return;
 
-    // 一意のチャンネル名を生成
-    const channelName = `synchro-game-${roomId}-${Date.now()}`;
+    // 統一されたチャンネル名を使用
+    const channelName = `synchro-game-${roomId}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "synchro_gm_selected" }, (payload) => {
@@ -253,6 +253,13 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
           setCurrentGameSessionId(payload.payload.sessionId);
           setHasAnswered(false);
           setCurrentAnswer("");
+          
+          // 質問が送信されたら回答数を同期開始
+          if (payload.payload.questionId) {
+            setTimeout(() => {
+              syncResponseCounts(payload.payload.questionId);
+            }, 500);
+          }
         }
       })
       .on("broadcast", { event: "synchro_answer_submitted" }, (payload) => {
@@ -300,6 +307,9 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         setCurrentAnswer("");
         setHasAnswered(false);
         setIsGM(false);
+        
+        // 新しいラウンド開始時に回答数をリセット
+        setResponseCounts({});
       })
       .on("broadcast", { event: "game_end" }, async () => {
         if (currentGameSessionId) {
@@ -336,7 +346,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     if (!currentParticipant) return;
 
     try {
-      const channelName = `synchro-game-events-${roomId}`;
+      const channelName = `synchro-game-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true },
@@ -364,6 +374,11 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         gmId: currentParticipant.id,
         gmName: currentParticipant.nickname,
       }));
+      
+      // チャンネルをクリーンアップ
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 2000);
     } catch (error) {
       alert(
         `GMの選択に失敗しました: ${
@@ -409,7 +424,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       setHasAnswered(false);
       setCurrentAnswer("");
 
-      const channelName = `synchro-game-events-${roomId}`;
+      const channelName = `synchro-game-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true, ack: true },
@@ -508,7 +523,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         currentAnswer.trim()
       );
 
-      const channelName = `synchro-answer-${roomId}-${Date.now()}`;
+      const channelName = `synchro-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -553,7 +568,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
 
   const handleShowResults = async () => {
     try {
-      const channelName = `synchro-game-events-${roomId}`;
+      const channelName = `synchro-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -568,7 +583,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
 
   const handleNewRound = async () => {
     try {
-      const channelName = `synchro-game-events-${roomId}`;
+      const channelName = `synchro-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -590,6 +605,9 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       setCurrentAnswer("");
       setHasAnswered(false);
       setIsGM(false);
+      
+      // 新しいラウンド開始時に回答数をリセット
+      setResponseCounts({});
     } catch (error) {}
   };
 

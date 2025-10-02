@@ -220,8 +220,8 @@ export function AnonymousSurveyGame({
   useEffect(() => {
     if (!roomId) return;
 
-    // 一意のチャンネル名を生成（重複を避ける）
-    const channelName = `anonymous-survey-${roomId}-${Date.now()}`;
+    // 統一されたチャンネル名を使用
+    const channelName = `anonymous-survey-${roomId}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "questioner_selected" }, (payload) => {
@@ -255,6 +255,13 @@ export function AnonymousSurveyGame({
           }));
           setCurrentGameSessionId(payload.payload.sessionId);
           setHasAnswered(false);
+          
+          // 質問が送信されたら回答数を同期開始
+          if (payload.payload.questionId) {
+            setTimeout(() => {
+              syncResponseCounts(payload.payload.questionId);
+            }, 500);
+          }
         }
       })
       .on("broadcast", { event: "answer_submitted" }, (payload) => {
@@ -301,6 +308,9 @@ export function AnonymousSurveyGame({
         setCurrentQuestion("");
         setHasAnswered(false);
         setIsQuestioner(false);
+        
+        // 新しいラウンド開始時に回答数をリセット
+        setResponseCounts({});
       })
       .on("broadcast", { event: "game_end" }, async () => {
         if (currentGameSessionId) {
@@ -337,7 +347,7 @@ export function AnonymousSurveyGame({
     if (!currentParticipant) return;
 
     try {
-      const channelName = `game-events-${roomId}`;
+      const channelName = `anonymous-survey-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true },
@@ -366,6 +376,11 @@ export function AnonymousSurveyGame({
         questionerId: currentParticipant.id,
         questionerName: currentParticipant.nickname,
       }));
+      
+      // チャンネルをクリーンアップ
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 2000);
     } catch (error) {
       alert(
         `質問者の選択に失敗しました: ${
@@ -386,10 +401,6 @@ export function AnonymousSurveyGame({
       try {
         const newSession = await gameService.createGameSession(roomId);
         sessionId = newSession.id;
-        // 回答送信後に正確な回答数を同期
-        setTimeout(() => {
-          syncResponseCounts(gameState.questionId);
-        }, 500);
         setCurrentGameSessionId(sessionId);
       } catch (error) {
         alert("ゲームセッションの作成に失敗しました。");
@@ -418,7 +429,7 @@ export function AnonymousSurveyGame({
       }));
       setHasAnswered(false);
 
-      const channelName = `game-events-${roomId}`;
+      const channelName = `anonymous-survey-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true, ack: true },
@@ -519,8 +530,8 @@ export function AnonymousSurveyGame({
         answer
       );
 
-      // 一意のチャンネル名でブロードキャスト
-      const channelName = `answer-broadcast-${roomId}-${Date.now()}`;
+      // 統一されたチャンネル名でブロードキャスト
+      const channelName = `anonymous-survey-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -567,7 +578,7 @@ export function AnonymousSurveyGame({
 
   const handleShowResults = async () => {
     try {
-      const channelName = `game-events-${roomId}`;
+      const channelName = `anonymous-survey-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -583,7 +594,7 @@ export function AnonymousSurveyGame({
 
   const handleNewRound = async () => {
     try {
-      const channelName = `game-events-${roomId}`;
+      const channelName = `anonymous-survey-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -605,6 +616,9 @@ export function AnonymousSurveyGame({
       setCurrentQuestion("");
       setHasAnswered(false);
       setIsQuestioner(false);
+      
+      // 新しいラウンド開始時に回答数をリセット
+      setResponseCounts({});
     } catch (error) {}
   };
 

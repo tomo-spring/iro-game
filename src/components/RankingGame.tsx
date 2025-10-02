@@ -77,6 +77,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         const current = await roomService.getCurrentParticipantFromRoom(roomId);
         if (current) {
           setCurrentParticipant(current);
+        }
         const channel = supabase.channel(`ranking-game-events-${roomId}`);
       } catch (error) {
       } finally {
@@ -161,27 +162,32 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
               
               // 回答数を同期
-        // 回答送信後に正確な回答数を同期
-        setTimeout(() => {
-          syncResponseCounts(gameState.questionId);
-        }, 500);
-        
-        const storedState = localStorage.getItem(`ranking_state_${roomId}`);
-        if (storedState) {
-          const state = JSON.parse(storedState);
-          const now = Date.now();
-          const stateTime = new Date(state.timestamp).getTime();
+              syncResponseCounts(activeQuestion.id);
+            }
+          }
+        } else {
+          // 回答送信後に正確な回答数を同期
+          setTimeout(() => {
+            syncResponseCounts(gameState.questionId);
+          }, 500);
           
-          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-            setGameState(state.gameState);
-            setCurrentQuestion(state.currentQuestion || "");
-            setSelectedRank(state.selectedRank || null);
-            setHasAnswered(state.hasAnswered || false);
-            setIsQuestioner(state.isQuestioner || false);
-            setCurrentGameSessionId(state.sessionId || "");
-          } else {
-            localStorage.removeItem(`ranking_state_${roomId}`);
+          const storedState = localStorage.getItem(`ranking_state_${roomId}`);
+          if (storedState) {
+            const state = JSON.parse(storedState);
+            const now = Date.now();
+            const stateTime = new Date(state.timestamp).getTime();
+            
+            // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+            if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
+              setGameState(state.gameState);
+              setCurrentQuestion(state.currentQuestion || "");
+              setSelectedRank(state.selectedRank || null);
+              setHasAnswered(state.hasAnswered || false);
+              setIsQuestioner(state.isQuestioner || false);
+              setCurrentGameSessionId(state.sessionId || "");
+            } else {
+              localStorage.removeItem(`ranking_state_${roomId}`);
+            }
           }
         }
       } catch (error) {
@@ -193,7 +199,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts]);
+  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts, gameState.questionId]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
@@ -216,8 +222,8 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   useEffect(() => {
     if (!roomId) return;
 
-    // 一意のチャンネル名を生成
-    const channelName = `ranking-game-${roomId}-${Date.now()}`;
+    // 統一されたチャンネル名を使用
+    const channelName = `ranking-game-${roomId}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "ranking_questioner_selected" }, (payload) => {
@@ -251,6 +257,13 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
           setCurrentGameSessionId(payload.payload.sessionId);
           setHasAnswered(false);
           setSelectedRank(null);
+          
+          // 質問が送信されたら回答数を同期開始
+          if (payload.payload.questionId) {
+            setTimeout(() => {
+              syncResponseCounts(payload.payload.questionId);
+            }, 500);
+          }
         }
       })
       .on("broadcast", { event: "ranking_answer_submitted" }, (payload) => {
@@ -298,6 +311,9 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         setHasAnswered(false);
         setSelectedRank(null);
         setIsQuestioner(false);
+        
+        // 新しいラウンド開始時に回答数をリセット
+        setResponseCounts({});
       })
       .on("broadcast", { event: "game_end" }, async () => {
         if (currentGameSessionId) {
@@ -334,7 +350,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     if (!currentParticipant) return;
 
     try {
-      const channelName = `ranking-game-events-${roomId}`;
+      const channelName = `ranking-game-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true },
@@ -362,6 +378,11 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         questionerId: currentParticipant.id,
         questionerName: currentParticipant.nickname,
       }));
+      
+      // チャンネルをクリーンアップ
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 2000);
     } catch (error) {
       alert(
         `質問者の選択に失敗しました: ${
@@ -407,7 +428,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setHasAnswered(false);
       setSelectedRank(null);
 
-      const channelName = `ranking-game-events-${roomId}`;
+      const channelName = `ranking-game-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true, ack: true },
@@ -506,7 +527,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         selectedRank
       );
 
-      const channelName = `ranking-answer-${roomId}-${Date.now()}`;
+      const channelName = `ranking-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -551,7 +572,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
   const handleShowResults = async () => {
     try {
-      const channelName = `ranking-game-events-${roomId}`;
+      const channelName = `ranking-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -566,7 +587,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
   const handleNewRound = async () => {
     try {
-      const channelName = `ranking-game-events-${roomId}`;
+      const channelName = `ranking-game-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -588,6 +609,9 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setHasAnswered(false);
       setSelectedRank(null);
       setIsQuestioner(false);
+      
+      // 新しいラウンド開始時に回答数をリセット
+      setResponseCounts({});
     } catch (error) {}
   };
 
