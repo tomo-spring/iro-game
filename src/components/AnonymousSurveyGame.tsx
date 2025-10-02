@@ -382,6 +382,10 @@ export function AnonymousSurveyGame({
 
     // ゲームセッションを取得または作成
     let sessionId = currentGameSessionId;
+    if (!sessionId) {
+      try {
+        const newSession = await gameService.createGameSession(roomId);
+        sessionId = newSession.id;
         // 回答送信後に正確な回答数を同期
         setTimeout(() => {
           syncResponseCounts(gameState.questionId);
