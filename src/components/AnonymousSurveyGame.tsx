@@ -551,36 +551,11 @@ export function AnonymousSurveyGame({
   };
 
   const handleShowResults = async () => {
-    // 結果表示前に最新の回答状況を同期
-    if (gameState.questionId) {
-      try {
-        const responses = await gameService.getQuestionResponses(gameState.questionId);
-        const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
-        
-        // 同期イベントをブロードキャスト
-        const channelName = `game-events-${roomId}`;
-        const syncChannel = supabase.channel(`${channelName}-sync`);
-        await syncChannel.send({
-          type: "broadcast",
-          event: "sync_responses",
-          payload: {
-            responses: responseMap,
-          },
-        });
-        
-        // ローカル状態も更新
-        setGameState((prev) => ({
-          ...prev,
-          responses: responseMap,
-        }));
-        
-        setTimeout(() => {
-          supabase.removeChannel(syncChannel);
-        }, 1000);
-      } catch (error) {
-        console.error('Failed to sync responses:', error);
-      }
-    }
+    // 結果表示前に強制同期
+    await forceSyncResponses();
+    
+    // 少し待ってから結果表示
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
       const channelName = `game-events-${roomId}`;
@@ -632,26 +607,29 @@ export function AnonymousSurveyGame({
   useEffect(() => {
     if (!gameState.questionId || gameState.phase !== "answering") return;
 
-    // より頻繁な同期（10秒ごと）
-    const syncInterval = setInterval(() => {
-      const now = Date.now();
-      // 最後の同期から5秒以上経過している場合のみ実行
-      if (now - lastSyncTime > 5000) {
-        forceSyncResponses();
+    const syncInterval = setInterval(async () => {
+      try {
+        const responses = await gameService.getQuestionResponses(gameState.questionId);
+        const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
+        
+        // 現在の状態と比較して差分がある場合のみ更新
+        const currentResponseCount = Object.keys(gameState.responses).length;
+        const newResponseCount = Object.keys(responseMap).length;
+        
+        if (currentResponseCount !== newResponseCount) {
+          console.log('Syncing responses due to count mismatch:', { current: currentResponseCount, new: newResponseCount });
+          setGameState((prev) => ({
+            ...prev,
+            responses: responseMap,
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to sync responses:', error);
       }
-    }, 10000);
+    }, 30000); // 30秒ごと
 
     return () => clearInterval(syncInterval);
-  }, [gameState.questionId, gameState.phase, lastSyncTime]);
-
-  // 回答フェーズ開始時に即座に同期
-  useEffect(() => {
-    if (gameState.phase === "answering" && gameState.questionId) {
-      setTimeout(() => {
-        forceSyncResponses();
-      }, 1000);
-    }
-  }, [gameState.phase, gameState.questionId]);
+  }, [gameState.questionId, gameState.phase, gameState.responses]);
 
   if (loading || isRestoringState) {
     return (
