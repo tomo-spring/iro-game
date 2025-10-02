@@ -93,51 +93,66 @@ export function AnonymousSurveyGame({
   useEffect(() => {
     const restoreGameState = async () => {
       if (!roomId) return;
-      
+
       setIsRestoringState(true);
-      
+
       try {
         // まずDBから最新のゲーム状態を取得
         const activeSession = await gameService.getActiveGameSession(roomId);
         if (activeSession) {
           setCurrentGameSessionId(activeSession.id);
-          
+
           // アクティブな質問があるかチェック
-          const { gameQuestions } = await gameService.getActiveQuestions(activeSession.id);
+          const { gameQuestions } = await gameService.getActiveQuestions(
+            activeSession.id
+          );
           if (gameQuestions.length > 0) {
             const activeQuestion = gameQuestions[0];
-            
+
             // 質問者情報を取得
-            const questioner = gameParticipants.find(p => p.id === activeQuestion.questioner_id);
-            
+            const questioner = gameParticipants.find(
+              (p) => p.id === activeQuestion.questioner_id
+            );
+
             // 自分の回答状況をチェック
             if (currentParticipant) {
-              const responses = await gameService.getQuestionResponses(activeQuestion.id);
-              const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
-              
+              const responses = await gameService.getQuestionResponses(
+                activeQuestion.id
+              );
+              const myResponse = responses.find(
+                (r) => r.participant_id === currentParticipant.id
+              );
+
               setGameState({
                 phase: "answering",
                 question: activeQuestion.question,
                 questionId: activeQuestion.id,
-                responses: responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {}),
+                responses: responses.reduce(
+                  (acc, r) => ({ ...acc, [r.participant_id]: r.response }),
+                  {}
+                ),
                 questionerId: activeQuestion.questioner_id,
                 questionerName: questioner?.nickname || "不明",
                 sessionId: activeSession.id,
               });
-              
+
               setHasAnswered(!!myResponse);
-              setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
+              setIsQuestioner(
+                activeQuestion.questioner_id === currentParticipant.id
+              );
             }
           }
         }
-        
+
         // ローカルストレージから状態を復元
-        const storedState = localStorage.getItem(`anonymous_survey_state_${roomId}`);
+        const storedState = localStorage.getItem(
+          `anonymous_survey_state_${roomId}`
+        );
         if (storedState) {
           const state = JSON.parse(storedState);
           const now = Date.now();
           const stateTime = new Date(state.timestamp).getTime();
-          
+
           // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
           if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
             setGameState(state.gameState);
@@ -150,7 +165,7 @@ export function AnonymousSurveyGame({
           }
         }
       } catch (error) {
-        console.error('Failed to restore game state:', error);
+        console.error("Failed to restore game state:", error);
         localStorage.removeItem(`anonymous_survey_state_${roomId}`);
       } finally {
         setIsRestoringState(false);
@@ -163,18 +178,29 @@ export function AnonymousSurveyGame({
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
     if (!roomId || isRestoringState) return;
-    
+
     const stateToSave = {
       gameState,
       currentQuestion,
       hasAnswered,
       isQuestioner,
       sessionId: currentGameSessionId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
-    
-    localStorage.setItem(`anonymous_survey_state_${roomId}`, JSON.stringify(stateToSave));
-  }, [gameState, currentQuestion, hasAnswered, isQuestioner, currentGameSessionId, roomId, isRestoringState]);
+
+    localStorage.setItem(
+      `anonymous_survey_state_${roomId}`,
+      JSON.stringify(stateToSave)
+    );
+  }, [
+    gameState,
+    currentQuestion,
+    hasAnswered,
+    isQuestioner,
+    currentGameSessionId,
+    roomId,
+    isRestoringState,
+  ]);
 
   // リアルタイム同期
   useEffect(() => {
@@ -218,7 +244,7 @@ export function AnonymousSurveyGame({
       })
       .on("broadcast", { event: "answer_submitted" }, (payload) => {
         if (payload.payload) {
-          console.log('Received answer broadcast:', payload.payload);
+          console.log("Received answer broadcast:", payload.payload);
           setGameState((prev) => ({
             ...prev,
             responses: {
@@ -230,7 +256,7 @@ export function AnonymousSurveyGame({
       })
       .on("broadcast", { event: "sync_responses" }, (payload) => {
         if (payload.payload && payload.payload.responses) {
-          console.log('Syncing responses:', payload.payload.responses);
+          console.log("Syncing responses:", payload.payload.responses);
           setGameState((prev) => ({
             ...prev,
             responses: payload.payload.responses,
@@ -363,14 +389,14 @@ export function AnonymousSurveyGame({
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true, ack: true },
-          presence: { key: roomId }
-        }
+          presence: { key: roomId },
+        },
       });
 
       // チャンネルが準備できるまで待機
       await new Promise((resolve) => {
         const subscription = channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
+          if (status === "SUBSCRIBED") {
             resolve(void 0);
           }
         });
@@ -391,7 +417,7 @@ export function AnonymousSurveyGame({
       });
 
       // ブロードキャストが失敗した場合でも、少し待ってから再試行
-      if (result !== 'ok') {
+      if (result !== "ok") {
         setTimeout(async () => {
           try {
             await channel.send({
@@ -406,7 +432,7 @@ export function AnonymousSurveyGame({
               },
             });
           } catch (retryError) {
-            console.warn('Broadcast retry failed:', retryError);
+            console.warn("Broadcast retry failed:", retryError);
           }
         }, 1000);
       }
@@ -415,7 +441,6 @@ export function AnonymousSurveyGame({
       setTimeout(() => {
         supabase.removeChannel(channel);
       }, 5000);
-
     } catch (error) {
       alert(
         `質問の送信に失敗しました: ${
@@ -433,14 +458,17 @@ export function AnonymousSurveyGame({
     }
 
     // モバイル環境での処理最適化
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
+    const isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+
     setHasAnswered(true);
 
     try {
       // モバイルでは少し待機してから送信
       if (isMobile) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
       // データベースに回答を保存
@@ -460,7 +488,7 @@ export function AnonymousSurveyGame({
       if (isMobile) {
         await new Promise((resolve) => {
           const subscription = channel.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
+            if (status === "SUBSCRIBED") {
               resolve(void 0);
             }
           });
@@ -487,10 +515,10 @@ export function AnonymousSurveyGame({
       }));
 
       // ブロードキャスト結果をログ出力
-      console.log('Answer broadcast result:', result);
-      
+      console.log("Answer broadcast result:", result);
+
       // モバイルでブロードキャストが失敗した場合の再試行
-      if (isMobile && result !== 'ok') {
+      if (isMobile && result !== "ok") {
         setTimeout(async () => {
           try {
             await channel.send({
@@ -510,7 +538,7 @@ export function AnonymousSurveyGame({
               },
             }));
           } catch (retryError) {
-            console.warn('Answer broadcast retry failed:', retryError);
+            console.warn("Answer broadcast retry failed:", retryError);
           }
         }, 1000);
       }
@@ -519,10 +547,9 @@ export function AnonymousSurveyGame({
       setTimeout(() => {
         supabase.removeChannel(channel);
       }, 3000);
-      
     } catch (error) {
       setHasAnswered(false); // エラーの場合は回答状態をリセット
-      console.error('Answer submission error:', error);
+      console.error("Answer submission error:", error);
       alert(
         `回答の送信に失敗しました: ${
           error instanceof Error ? error.message : "もう一度お試しください。"
@@ -535,9 +562,14 @@ export function AnonymousSurveyGame({
     // 結果表示前に最新の回答状況を同期
     if (gameState.questionId) {
       try {
-        const responses = await gameService.getQuestionResponses(gameState.questionId);
-        const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
-        
+        const responses = await gameService.getQuestionResponses(
+          gameState.questionId
+        );
+        const responseMap = responses.reduce(
+          (acc, r) => ({ ...acc, [r.participant_id]: r.response }),
+          {}
+        );
+
         // 同期イベントをブロードキャスト
         const channelName = `game-events-${roomId}`;
         const syncChannel = supabase.channel(`${channelName}-sync`);
@@ -548,18 +580,18 @@ export function AnonymousSurveyGame({
             responses: responseMap,
           },
         });
-        
+
         // ローカル状態も更新
         setGameState((prev) => ({
           ...prev,
           responses: responseMap,
         }));
-        
+
         setTimeout(() => {
           supabase.removeChannel(syncChannel);
         }, 1000);
       } catch (error) {
-        console.error('Failed to sync responses:', error);
+        console.error("Failed to sync responses:", error);
       }
     }
 
@@ -609,34 +641,6 @@ export function AnonymousSurveyGame({
   const totalResponses = Object.keys(gameState.responses).length;
   const allAnswered = totalResponses === gameParticipants.length;
 
-  // 定期的な回答状況同期（30秒ごと）
-  useEffect(() => {
-    if (!gameState.questionId || gameState.phase !== "answering") return;
-
-    const syncInterval = setInterval(async () => {
-      try {
-        const responses = await gameService.getQuestionResponses(gameState.questionId);
-        const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
-        
-        // 現在の状態と比較して差分がある場合のみ更新
-        const currentResponseCount = Object.keys(gameState.responses).length;
-        const newResponseCount = Object.keys(responseMap).length;
-        
-        if (currentResponseCount !== newResponseCount) {
-          console.log('Syncing responses due to count mismatch:', { current: currentResponseCount, new: newResponseCount });
-          setGameState((prev) => ({
-            ...prev,
-            responses: responseMap,
-          }));
-        }
-      } catch (error) {
-        console.error('Failed to sync responses:', error);
-      }
-    }, 30000); // 30秒ごと
-
-    return () => clearInterval(syncInterval);
-  }, [gameState.questionId, gameState.phase, gameState.responses]);
-
   if (loading || isRestoringState) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
@@ -668,7 +672,8 @@ export function AnonymousSurveyGame({
                 ナイショのアンケート
               </h2>
             </div>
-            <button type="button"
+            <button
+              type="button"
               onClick={onClose}
               className="bg-white text-black p-1.5 sm:p-2 border-2 border-black hover:bg-gray-100 transition-colors"
             >
@@ -712,7 +717,8 @@ export function AnonymousSurveyGame({
               </div>
 
               <div className="text-center">
-                <button type="button"
+                <button
+                  type="button"
                   onClick={handleBecomeQuestioner}
                   disabled={!currentParticipant}
                   className="bg-yellow-400 text-black py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] sm:hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] sm:hover:translate-x-[2px] sm:hover:translate-y-[2px]"
@@ -756,13 +762,17 @@ export function AnonymousSurveyGame({
                     <span className="text-sm text-gray-600">
                       {currentQuestion.length}/200文字
                     </span>
-                    <button type="button"
-                      onClick={() => setCurrentQuestion(pickRandom(anonymousYesNoTopics))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentQuestion(pickRandom(anonymousYesNoTopics))
+                      }
                       className="bg-white text-black py-2 px-3 border-2 border-black font-bold hover:bg-gray-100 transition-colors text-sm sm:text-base mr-2"
                     >
                       <Shuffle className="h-4 w-4 inline mr-1" /> ランダム質問
                     </button>
-                    <button type="button"
+                    <button
+                      type="button"
                       onClick={handleSubmitQuestion}
                       disabled={!currentQuestion.trim()}
                       className="bg-red-500 text-white py-2 px-4 sm:px-6 border-2 border-black font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
@@ -826,7 +836,8 @@ export function AnonymousSurveyGame({
                     あなたの回答を選んでください
                   </h4>
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4">
-                    <button type="button"
+                    <button
+                      type="button"
                       onClick={() => handleAnswer(true)}
                       disabled={
                         !currentParticipant ||
@@ -838,7 +849,8 @@ export function AnonymousSurveyGame({
                       <CheckCircle className="h-6 w-6 sm:h-8 sm:w-8" />
                       YES
                     </button>
-                    <button type="button"
+                    <button
+                      type="button"
                       onClick={() => handleAnswer(false)}
                       disabled={
                         !currentParticipant ||
@@ -880,7 +892,8 @@ export function AnonymousSurveyGame({
                     onClick={handleShowResults}
                     className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors"
                   >
-                    結果を表示 ({totalResponses}/{gameParticipants.length}人回答済み)
+                    結果を表示 ({totalResponses}/{gameParticipants.length}
+                    人回答済み)
                   </button>
                 </div>
               )}
@@ -920,7 +933,8 @@ export function AnonymousSurveyGame({
                 <p className="text-base sm:text-lg text-gray-700">
                   一体だれが「YES」を押したんでしょうね？🤔
                 </p>
-                <button type="button"
+                <button
+                  type="button"
                   onClick={handleNewRound}
                   className="bg-green-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-green-600 transition-colors flex items-center gap-2 sm:gap-3 mx-auto"
                 >
