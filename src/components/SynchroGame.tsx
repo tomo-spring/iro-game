@@ -73,6 +73,49 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         const current = await roomService.getCurrentParticipantFromRoom(roomId);
         if (current) {
           setCurrentParticipant(current);
+        }
+      } catch (error) {
+        console.error('Failed to fetch participants:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchGameParticipants();
+  }, [roomId]);
+
+  // 回答数を定期的に同期する関数
+  const syncResponseCounts = useCallback(async (questionId: string) => {
+    if (!questionId) return;
+    
+    const now = Date.now();
+    // 500ms以内の重複リクエストを防ぐ
+    if (now - lastSyncTime < 500) return;
+    
+    try {
+      const responses = await gameService.getSynchroResponses(questionId);
+      const count = responses.length;
+      
+      setResponseCounts(prev => ({
+        ...prev,
+        [questionId]: count
+      }));
+      setLastSyncTime(now);
+      
+      // ローカル状態も更新
+      const responseMap = responses.reduce((acc, r) => ({ 
+        ...acc, 
+        [r.participant_id]: r.answer 
+      }), {});
+      
+      setGameState(prev => ({
+        ...prev,
+        responses: responseMap
+      }));
+    } catch (error) {
+      console.error('Failed to sync synchro response counts:', error);
+    }
+  }, [lastSyncTime]);
         const channel = supabase.channel(`synchro-game-events-${roomId}`);
       } catch (error) {
       } finally {
