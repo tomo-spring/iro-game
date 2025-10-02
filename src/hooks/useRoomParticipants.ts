@@ -14,7 +14,6 @@ export function useRoomParticipants(roomId: string) {
     if (!roomId) return;
 
     let mounted = true;
-    let refreshInterval: number;
 
     // Fetch initial participants
     const fetchParticipants = async () => {
@@ -22,9 +21,9 @@ export function useRoomParticipants(roomId: string) {
       if (fetchingRooms.has(roomId)) {
         return;
       }
-      
+
       fetchingRooms.add(roomId);
-      
+
       try {
         const data = await roomService.getParticipants(roomId);
 
@@ -45,16 +44,10 @@ export function useRoomParticipants(roomId: string) {
       }
     };
 
+    // Initial fetch
     fetchParticipants();
 
-    // Set up periodic refresh every 3 seconds (頻度を下げて負荷軽減)
-    refreshInterval = window.setInterval(() => {
-      if (mounted) {
-        fetchParticipants();
-      }
-    }, 3000); // Refresh every 3 seconds
-
-    // Subscribe to real-time changes
+    // Subscribe to real-time changes via WebSocket (ポーリング削除、完全リアルタイム化)
     const channelName = `participants-${roomId}-${Date.now()}`;
     const channel = supabase
       .channel(channelName, {
@@ -74,42 +67,25 @@ export function useRoomParticipants(roomId: string) {
         },
         (payload) => {
           if (!mounted) return;
-
-          // デバウンス処理でフェッチ頻度を制限
-          setTimeout(() => {
-            if (mounted) {
-              fetchParticipants();
-            }
-          }, 500);
+          // データベース変更を即座に反映
+          fetchParticipants();
         }
       )
       .on("broadcast", { event: "participant_update" }, (payload) => {
         if (mounted && !fetchingRooms.has(roomId)) {
-          // デバウンス処理
-          setTimeout(() => {
-            if (mounted) {
-              fetchParticipants();
-            }
-          }, 300);
+          // ブロードキャストイベントを即座に反映
+          fetchParticipants();
         }
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          // Force refresh after subscription
-          setTimeout(() => {
-            if (mounted && !fetchingRooms.has(roomId)) {
-              fetchParticipants();
-            }
-          }, 1000);
+          console.log(`✅ リアルタイム接続確立: ${channelName}`);
         }
       });
 
     return () => {
       mounted = false;
       fetchingRooms.delete(roomId);
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
       supabase.removeChannel(channel);
     };
   }, [roomId]);
