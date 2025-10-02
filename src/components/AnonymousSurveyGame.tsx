@@ -98,8 +98,8 @@ export function AnonymousSurveyGame({
     if (!questionId) return;
     
     const now = Date.now();
-    // 1秒以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 1000) return;
+    // 500ms以内の重複リクエストを防ぐ
+    if (now - lastSyncTime < 500) return;
     
     try {
       const responses = await gameService.getQuestionResponses(questionId);
@@ -112,21 +112,19 @@ export function AnonymousSurveyGame({
       setLastSyncTime(now);
       
       // ローカル状態も更新（重複を避けるため、既存の回答のみ保持）
-      if (currentParticipant) {
-        const responseMap = responses.reduce((acc, r) => ({ 
-          ...acc, 
-          [r.participant_id]: r.response 
-        }), {});
-        
-        setGameState(prev => ({
-          ...prev,
-          responses: responseMap
-        }));
-      }
+      const responseMap = responses.reduce((acc, r) => ({ 
+        ...acc, 
+        [r.participant_id]: r.response 
+      }), {});
+      
+      setGameState(prev => ({
+        ...prev,
+        responses: responseMap
+      }));
     } catch (error) {
       console.error('Failed to sync response counts:', error);
     }
-  }, [currentParticipant, lastSyncTime]);
+  }, [lastSyncTime]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -279,6 +277,11 @@ export function AnonymousSurveyGame({
                 [payload.payload.participantId]: payload.payload.answer,
               }).length
             }));
+            
+            // 少し遅延させて正確な回答数を同期
+            setTimeout(() => {
+              syncResponseCounts(gameState.questionId);
+            }, 200);
           }
         }
       })
@@ -305,9 +308,8 @@ export function AnonymousSurveyGame({
             await gameService.endGameSession(currentGameSessionId);
           } catch (error) {}
         }
-        // ゲーム終了時に状態をクリア
-        localStorage.removeItem(`anonymous_survey_state_${roomId}`);
-        // ゲーム終了をロビーに通知
+        // ブロードキャスト
+        const channel = supabase.channel(`game-events-${roomId}`);
         const lobbyChannel = supabase.channel(`game-start-${roomId}`);
         await lobbyChannel.send({
           type: "broadcast",
@@ -323,7 +325,7 @@ export function AnonymousSurveyGame({
       if (gameState.questionId && gameState.phase === "answering") {
         syncResponseCounts(gameState.questionId);
       }
-    }, 5000);
+    }, 3000); // 3秒間隔に短縮
 
     return () => {
       supabase.removeChannel(channel);
@@ -380,10 +382,10 @@ export function AnonymousSurveyGame({
 
     // ゲームセッションを取得または作成
     let sessionId = currentGameSessionId;
-    if (!sessionId) {
-      try {
-        const session = await gameService.createGameSession(roomId);
-        sessionId = session.id;
+        // 回答送信後に正確な回答数を同期
+        setTimeout(() => {
+          syncResponseCounts(gameState.questionId);
+        }, 500);
         setCurrentGameSessionId(sessionId);
       } catch (error) {
         alert("ゲームセッションの作成に失敗しました。");

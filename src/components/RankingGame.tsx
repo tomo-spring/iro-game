@@ -77,8 +77,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         const current = await roomService.getCurrentParticipantFromRoom(roomId);
         if (current) {
           setCurrentParticipant(current);
-        } else {
-        }
+        const channel = supabase.channel(`ranking-game-events-${roomId}`);
       } catch (error) {
       } finally {
         setLoading(false);
@@ -93,8 +92,8 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     if (!questionId) return;
     
     const now = Date.now();
-    // 1秒以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 1000) return;
+    // 500ms以内の重複リクエストを防ぐ
+    if (now - lastSyncTime < 500) return;
     
     try {
       const responses = await gameService.getRankingResponses(questionId);
@@ -107,21 +106,19 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setLastSyncTime(now);
       
       // ローカル状態も更新
-      if (currentParticipant) {
-        const responseMap = responses.reduce((acc, r) => ({ 
-          ...acc, 
-          [r.participant_id]: r.rank_choice 
-        }), {});
-        
-        setGameState(prev => ({
-          ...prev,
-          responses: responseMap
-        }));
-      }
+      const responseMap = responses.reduce((acc, r) => ({ 
+        ...acc, 
+        [r.participant_id]: r.rank_choice 
+      }), {});
+      
+      setGameState(prev => ({
+        ...prev,
+        responses: responseMap
+      }));
     } catch (error) {
       console.error('Failed to sync ranking response counts:', error);
     }
-  }, [currentParticipant, lastSyncTime]);
+  }, [lastSyncTime]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -164,10 +161,10 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
               
               // 回答数を同期
-              await syncResponseCounts(activeQuestion.id);
-            }
-          }
-        }
+        // 回答送信後に正確な回答数を同期
+        setTimeout(() => {
+          syncResponseCounts(gameState.questionId);
+        }, 500);
         
         const storedState = localStorage.getItem(`ranking_state_${roomId}`);
         if (storedState) {
@@ -276,6 +273,11 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
                 [payload.payload.participantId]: payload.payload.rankChoice,
               }).length
             }));
+            
+            // 少し遅延させて正確な回答数を同期
+            setTimeout(() => {
+              syncResponseCounts(gameState.questionId);
+            }, 200);
           }
         }
       })
@@ -320,7 +322,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       if (gameState.questionId && gameState.phase === "answering") {
         syncResponseCounts(gameState.questionId);
       }
-    }, 5000);
+    }, 3000); // 3秒間隔に短縮
 
     return () => {
       supabase.removeChannel(channel);

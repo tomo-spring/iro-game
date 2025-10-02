@@ -73,8 +73,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         const current = await roomService.getCurrentParticipantFromRoom(roomId);
         if (current) {
           setCurrentParticipant(current);
-        } else {
-        }
+        const channel = supabase.channel(`synchro-game-events-${roomId}`);
       } catch (error) {
       } finally {
         setLoading(false);
@@ -89,8 +88,8 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     if (!questionId) return;
     
     const now = Date.now();
-    // 1秒以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 1000) return;
+    // 500ms以内の重複リクエストを防ぐ
+    if (now - lastSyncTime < 500) return;
     
     try {
       const responses = await gameService.getSynchroResponses(questionId);
@@ -103,21 +102,19 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       setLastSyncTime(now);
       
       // ローカル状態も更新
-      if (currentParticipant) {
-        const responseMap = responses.reduce((acc, r) => ({ 
-          ...acc, 
-          [r.participant_id]: r.answer 
-        }), {});
-        
-        setGameState(prev => ({
-          ...prev,
-          responses: responseMap
-        }));
-      }
+      const responseMap = responses.reduce((acc, r) => ({ 
+        ...acc, 
+        [r.participant_id]: r.answer 
+      }), {});
+      
+      setGameState(prev => ({
+        ...prev,
+        responses: responseMap
+      }));
     } catch (error) {
       console.error('Failed to sync synchro response counts:', error);
     }
-  }, [currentParticipant, lastSyncTime]);
+  }, [lastSyncTime]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -160,10 +157,10 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
               setIsGM(activeQuestion.gm_id === currentParticipant.id);
               
               // 回答数を同期
-              await syncResponseCounts(activeQuestion.id);
-            }
-          }
-        }
+        // 回答送信後に正確な回答数を同期
+        setTimeout(() => {
+          syncResponseCounts(gameState.questionId);
+        }, 500);
         
         const storedState = localStorage.getItem(`synchro_state_${roomId}`);
         if (storedState) {
@@ -272,6 +269,11 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
                 [payload.payload.participantId]: payload.payload.answer,
               }).length
             }));
+            
+            // 少し遅延させて正確な回答数を同期
+            setTimeout(() => {
+              syncResponseCounts(gameState.questionId);
+            }, 200);
           }
         }
       })
@@ -316,7 +318,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       if (gameState.questionId && gameState.phase === "answering") {
         syncResponseCounts(gameState.questionId);
       }
-    }, 5000);
+    }, 3000); // 3秒間隔に短縮
 
     return () => {
       supabase.removeChannel(channel);
