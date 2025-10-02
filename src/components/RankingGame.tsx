@@ -62,6 +62,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   // 回答数同期の状態管理
   const [responseCounts, setResponseCounts] = useState<{[questionId: string]: number}>({});
   const [lastSyncTime, setLastSyncTime] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -94,8 +95,9 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     
     const now = Date.now();
     // 500ms以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 500) return;
+    if (now - lastSyncTime < 500 || isSyncing) return;
     
+    setIsSyncing(true);
     try {
       const responses = await gameService.getRankingResponses(questionId);
       const count = responses.length;
@@ -107,19 +109,23 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setLastSyncTime(now);
       
       // ローカル状態も更新
-      const responseMap = responses.reduce((acc, r) => ({ 
-        ...acc, 
-        [r.participant_id]: r.rank_choice 
-      }), {});
-      
-      setGameState(prev => ({
-        ...prev,
-        responses: responseMap
-      }));
+      if (responses.length > 0) {
+        const responseMap = responses.reduce((acc, r) => ({ 
+          ...acc, 
+          [r.participant_id]: r.rank_choice 
+        }), {});
+        
+        setGameState(prev => ({
+          ...prev,
+          responses: responseMap
+        }));
+      }
     } catch (error) {
       console.error('Failed to sync ranking response counts:', error);
+    } finally {
+      setIsSyncing(false);
     }
-  }, [lastSyncTime]);
+  }, [lastSyncTime, isSyncing]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -268,6 +274,8 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       })
       .on("broadcast", { event: "ranking_answer_submitted" }, (payload) => {
         if (payload.payload) {
+          if (isSyncing) return; // 同期中は処理をスキップ
+          
           // ローカル状態を即座に更新
           setGameState((prev) => ({
             ...prev,
@@ -278,9 +286,11 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
           }));
           
           // 回答数カウントも更新
-          if (gameState.questionId) {
-            setResponseCounts(prev => ({
-              ...prev,
+          if (!isSyncing) {
+            setTimeout(() => {
+              syncResponseCounts(gameState.questionId);
+            }, 200);
+          }
               [gameState.questionId]: Object.keys({
                 ...gameState.responses,
                 [payload.payload.participantId]: payload.payload.rankChoice,
@@ -335,7 +345,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
     // 定期的な回答数同期（5秒間隔）
     const syncInterval = setInterval(() => {
-      if (gameState.questionId && gameState.phase === "answering") {
+      if (gameState.questionId && gameState.phase === "answering" && !isSyncing) {
         syncResponseCounts(gameState.questionId);
       }
     }, 3000); // 3秒間隔に短縮
@@ -344,7 +354,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       supabase.removeChannel(channel);
       clearInterval(syncInterval);
     };
-  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses]);
+  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses, isSyncing]);
 
   const handleBecomeQuestioner = async () => {
     if (!currentParticipant) return;
@@ -629,7 +639,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   );
   const duplicateRanks = [...new Set(duplicates)];
 
-  if (loading || isRestoringState) {
+  if (loading || isRestoringState || isSyncing) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -639,7 +649,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
           <p className="text-black font-bold text-lg">
-            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
+            {loading ? "ゲームを準備中..." : isRestoringState ? "ゲーム状態を復元中..." : "同期中..."}
           </p>
         </div>
       </div>
