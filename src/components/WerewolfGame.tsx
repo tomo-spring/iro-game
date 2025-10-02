@@ -92,6 +92,7 @@ export function WerewolfGame({
     new Set()
   );
   const [hasClickedPhaseButton, setHasClickedPhaseButton] = useState(false);
+  const [isRestoringState, setIsRestoringState] = useState(true);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -118,6 +119,61 @@ export function WerewolfGame({
 
     fetchGameParticipants();
   }, [roomId]);
+
+  // ページ読み込み時にゲーム状態を復元
+  useEffect(() => {
+    const restoreGameState = async () => {
+      if (!roomId) return;
+      
+      setIsRestoringState(true);
+      
+      try {
+        const storedState = localStorage.getItem(`werewolf_state_${roomId}`);
+        if (storedState) {
+          const state = JSON.parse(storedState);
+          const now = Date.now();
+          const stateTime = new Date(state.timestamp).getTime();
+          
+          if (now - stateTime < 30 * 60 * 1000) {
+            setGameState(state.gameState);
+            setSelectedVote(state.selectedVote || null);
+            setHasVoted(state.hasVoted || false);
+            setReverseMode(state.reverseMode || false);
+            setWerewolfGuess(state.werewolfGuess || "");
+            setPhaseButtonClicks(new Set(state.phaseButtonClicks || []));
+            setHasClickedPhaseButton(state.hasClickedPhaseButton || false);
+          } else {
+            localStorage.removeItem(`werewolf_state_${roomId}`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to restore werewolf game state:', error);
+        localStorage.removeItem(`werewolf_state_${roomId}`);
+      } finally {
+        setIsRestoringState(false);
+      }
+    };
+
+    restoreGameState();
+  }, [roomId]);
+
+  // ゲーム状態が変更されたときにローカルストレージに保存
+  useEffect(() => {
+    if (!roomId || isRestoringState) return;
+    
+    const stateToSave = {
+      gameState,
+      selectedVote,
+      hasVoted,
+      reverseMode,
+      werewolfGuess,
+      phaseButtonClicks: Array.from(phaseButtonClicks),
+      hasClickedPhaseButton,
+      timestamp: new Date().toISOString()
+    };
+    
+    localStorage.setItem(`werewolf_state_${roomId}`, JSON.stringify(stateToSave));
+  }, [gameState, selectedVote, hasVoted, reverseMode, werewolfGuess, phaseButtonClicks, hasClickedPhaseButton, roomId, isRestoringState]);
 
   const handleGameStart = useCallback(
     async (sessionId: string, reverseMode: boolean) => {
@@ -244,6 +300,7 @@ export function WerewolfGame({
             await werewolfService.endSession(gameState.session.id);
           } catch {}
         }
+        localStorage.removeItem(`werewolf_state_${roomId}`);
         // ゲーム終了をロビーに通知
         const lobbyChannel = supabase.channel(`game-start-${roomId}`);
         await lobbyChannel.send({
@@ -514,7 +571,7 @@ export function WerewolfGame({
   const allVoted = totalVotes === gameParticipants.length;
   const phaseButtonClickCount = phaseButtonClicks.size;
 
-  if (loading) {
+  if (loading || isRestoringState) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -523,7 +580,9 @@ export function WerewolfGame({
             <div className="w-4 h-4 bg-yellow-400 border border-black animate-pulse"></div>
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
-          <p className="text-black font-bold text-lg">ゲームを準備中...</p>
+          <p className="text-black font-bold text-lg">
+            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
+          </p>
         </div>
       </div>
     );

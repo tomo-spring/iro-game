@@ -53,6 +53,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   );
   const [gameParticipants, setGameParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRestoringState, setIsRestoringState] = useState(true);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -78,6 +79,59 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
 
     fetchGameParticipants();
   }, [roomId]);
+
+  // ページ読み込み時にゲーム状態を復元
+  useEffect(() => {
+    const restoreGameState = async () => {
+      if (!roomId) return;
+      
+      setIsRestoringState(true);
+      
+      try {
+        const storedState = localStorage.getItem(`synchro_state_${roomId}`);
+        if (storedState) {
+          const state = JSON.parse(storedState);
+          const now = Date.now();
+          const stateTime = new Date(state.timestamp).getTime();
+          
+          if (now - stateTime < 30 * 60 * 1000) {
+            setGameState(state.gameState);
+            setCurrentQuestion(state.currentQuestion || "");
+            setCurrentAnswer(state.currentAnswer || "");
+            setHasAnswered(state.hasAnswered || false);
+            setIsGM(state.isGM || false);
+            setCurrentGameSessionId(state.sessionId || "");
+          } else {
+            localStorage.removeItem(`synchro_state_${roomId}`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to restore synchro game state:', error);
+        localStorage.removeItem(`synchro_state_${roomId}`);
+      } finally {
+        setIsRestoringState(false);
+      }
+    };
+
+    restoreGameState();
+  }, [roomId]);
+
+  // ゲーム状態が変更されたときにローカルストレージに保存
+  useEffect(() => {
+    if (!roomId || isRestoringState) return;
+    
+    const stateToSave = {
+      gameState,
+      currentQuestion,
+      currentAnswer,
+      hasAnswered,
+      isGM,
+      sessionId: currentGameSessionId,
+      timestamp: new Date().toISOString()
+    };
+    
+    localStorage.setItem(`synchro_state_${roomId}`, JSON.stringify(stateToSave));
+  }, [gameState, currentQuestion, currentAnswer, hasAnswered, isGM, currentGameSessionId, roomId, isRestoringState]);
 
   // リアルタイム同期
   useEffect(() => {
@@ -154,6 +208,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             await gameService.endGameSession(currentGameSessionId);
           } catch (error) {}
         }
+        localStorage.removeItem(`synchro_state_${roomId}`);
         // ゲーム終了をロビーに通知
         const lobbyChannel = supabase.channel(`game-start-${roomId}`);
         await lobbyChannel.send({
@@ -369,7 +424,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   const isSuccess = uniqueAnswers.size === 1 && responseValues.length > 0;
   const mostCommonAnswer = responseValues.length > 0 ? responseValues[0] : "";
 
-  if (loading) {
+  if (loading || isRestoringState) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -378,7 +433,9 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             <div className="w-4 h-4 bg-yellow-400 border border-black animate-pulse"></div>
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
-          <p className="text-black font-bold text-lg">ゲームを準備中...</p>
+          <p className="text-black font-bold text-lg">
+            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
+          </p>
         </div>
       </div>
     );

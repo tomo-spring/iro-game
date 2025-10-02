@@ -117,6 +117,51 @@ export const gameService = {
     }
   },
 
+  async getActiveQuestions(sessionId: string): Promise<{
+    gameQuestions: GameQuestion[];
+    rankingQuestions: RankingQuestion[];
+    synchroQuestions: SynchroQuestion[];
+  }> {
+    try {
+      const [gameQuestionsResult, rankingQuestionsResult, synchroQuestionsResult] = await Promise.all([
+        supabase
+          .from('game_questions')
+          .select('*')
+          .eq('session_id', sessionId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1),
+        supabase
+          .from('ranking_questions')
+          .select('*')
+          .eq('session_id', sessionId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1),
+        supabase
+          .from('synchro_questions')
+          .select('*')
+          .eq('session_id', sessionId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+      ]);
+
+      return {
+        gameQuestions: gameQuestionsResult.data || [],
+        rankingQuestions: rankingQuestionsResult.data || [],
+        synchroQuestions: synchroQuestionsResult.data || []
+      };
+    } catch (error) {
+      console.error('Failed to get active questions:', error);
+      return {
+        gameQuestions: [],
+        rankingQuestions: [],
+        synchroQuestions: []
+      };
+    }
+  },
+
   async createQuestion(sessionId: string, question: string, questionerId: string): Promise<GameQuestion> {
     console.log('Creating question for session:', sessionId);
     

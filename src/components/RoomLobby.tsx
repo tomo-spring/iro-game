@@ -26,6 +26,7 @@ export function RoomLobby() {
   const [selectedGameType, setSelectedGameType] = useState<
     "anonymous_survey" | "ranking" | "synchro" | "werewolf"
   >("anonymous_survey");
+  const [isCheckingActiveGame, setIsCheckingActiveGame] = useState(true);
 
   const { participants, loading } = useRoomParticipants(roomId || "");
 
@@ -49,6 +50,42 @@ export function RoomLobby() {
     return () => clearInterval(interval);
   }, []);
 
+  // ページ読み込み時に進行中のゲームをチェック
+  useEffect(() => {
+    const checkActiveGame = async () => {
+      if (!roomId) return;
+      
+      setIsCheckingActiveGame(true);
+      
+      try {
+        // ローカルストレージから進行中のゲーム情報を取得
+        const storedGameState = localStorage.getItem(`active_game_${roomId}`);
+        if (storedGameState) {
+          const gameState = JSON.parse(storedGameState);
+          const now = Date.now();
+          const gameStartTime = new Date(gameState.startTime).getTime();
+          
+          // ゲーム開始から30分以内なら有効とみなす
+          if (now - gameStartTime < 30 * 60 * 1000) {
+            setSelectedGameType(gameState.gameType);
+            setGameSessionId(gameState.sessionId);
+            setGameActive(true);
+          } else {
+            // 古いゲーム状態を削除
+            localStorage.removeItem(`active_game_${roomId}`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check active game:', error);
+        localStorage.removeItem(`active_game_${roomId}`);
+      } finally {
+        setIsCheckingActiveGame(false);
+      }
+    };
+
+    checkActiveGame();
+  }, [roomId]);
+
   // ゲーム開始の監視
   useEffect(() => {
     if (!roomId) return;
@@ -58,6 +95,15 @@ export function RoomLobby() {
       .channel(`game-start-${roomId}`)
       .on("broadcast", { event: "game_start" }, (payload) => {
         if (payload.payload) {
+          // ゲーム状態をローカルストレージに保存
+          const gameState = {
+            gameType: payload.payload.gameType,
+            sessionId: payload.payload.sessionId,
+            startTime: new Date().toISOString(),
+            roomId: roomId
+          };
+          localStorage.setItem(`active_game_${roomId}`, JSON.stringify(gameState));
+          
           setSelectedGameType(payload.payload.gameType);
           setGameSessionId(payload.payload.sessionId);
           setGameActive(true);
@@ -65,6 +111,8 @@ export function RoomLobby() {
         }
       })
       .on("broadcast", { event: "game_end" }, () => {
+        // ゲーム終了時にローカルストレージをクリア
+        localStorage.removeItem(`active_game_${roomId}`);
         setGameActive(false);
         setGameSessionId(null);
       })
@@ -211,11 +259,15 @@ export function RoomLobby() {
   };
 
   const handleCloseGame = () => {
+    // ゲーム終了時にローカルストレージをクリア
+    if (roomId) {
+      localStorage.removeItem(`active_game_${roomId}`);
+    }
     setGameActive(false);
     setGameSessionId(null);
   };
 
-  if (loading) {
+  if (loading || isCheckingActiveGame) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -224,7 +276,9 @@ export function RoomLobby() {
             <div className="w-4 h-4 bg-yellow-400 border border-black animate-pulse"></div>
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
-          <p className="text-black font-bold text-lg">ルームに参加中...</p>
+          <p className="text-black font-bold text-lg">
+            {loading ? "ルームに参加中..." : "ゲーム状態を確認中..."}
+          </p>
         </div>
       </div>
     );
