@@ -84,6 +84,7 @@ export function RoomLobby() {
     };
 
     checkActiveGame();
+  }, [roomId]);
 
   // ゲーム開始の監視
   useEffect(() => {
