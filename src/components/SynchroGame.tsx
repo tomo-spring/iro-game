@@ -746,14 +746,14 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
                 </div>
               )}
 
-              {allAnswered && gameState.gmId === currentParticipant?.id && (
+              {gameState.questionId && (
                 <div className="text-center">
                   <button
                     type="button"
                     onClick={handleShowResults}
                     className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors"
                   >
-                    結果を表示
+                    結果を表示 ({totalResponses}/{gameParticipants.length}人回答済み)
                   </button>
                 </div>
               )}

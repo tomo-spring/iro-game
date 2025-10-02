@@ -862,14 +862,14 @@ export function WerewolfGame({
                 </div>
               )}
 
-              {allVoted && (
+              {gameState.session && gameState.phase === "vote" && (
                 <div className="text-center">
                   <button
                     onClick={handleShowResults}
                     type="button"
                     className="bg-red-600 text-white py-3 px-6 border-2 border-black font-bold hover:bg-red-700 transition-colors"
                   >
-                    結果を表示
+                    結果を表示 ({totalVotes}/{gameParticipants.length}人投票済み)
                   </button>
                 </div>
               )}
