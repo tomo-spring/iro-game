@@ -74,8 +74,8 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
         if (current) {
           setCurrentParticipant(current);
         }
+        const channel = supabase.channel(`synchro-game-events-${roomId}`);
       } catch (error) {
-        console.error('Failed to fetch participants:', error);
       } finally {
         setLoading(false);
       }
@@ -161,29 +161,29 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
               syncResponseCounts(activeQuestion.id);
             }
           }
-        } else {
-          // 回答送信後に正確な回答数を同期
-          setTimeout(() => {
-            syncResponseCounts(gameState.questionId);
-          }, 500);
+        }
+        
+        // 回答送信後に正確な回答数を同期
+        setTimeout(() => {
+          syncResponseCounts(gameState.questionId);
+        }, 500);
+        
+        const storedState = localStorage.getItem(`synchro_state_${roomId}`);
+        if (storedState) {
+          const state = JSON.parse(storedState);
+          const now = Date.now();
+          const stateTime = new Date(state.timestamp).getTime();
           
-          const storedState = localStorage.getItem(`synchro_state_${roomId}`);
-          if (storedState) {
-            const state = JSON.parse(storedState);
-            const now = Date.now();
-            const stateTime = new Date(state.timestamp).getTime();
-            
-            // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-            if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-              setGameState(state.gameState);
-              setCurrentQuestion(state.currentQuestion || "");
-              setCurrentAnswer(state.currentAnswer || "");
-              setHasAnswered(state.hasAnswered || false);
-              setIsGM(state.isGM || false);
-              setCurrentGameSessionId(state.sessionId || "");
-            } else {
-              localStorage.removeItem(`synchro_state_${roomId}`);
-            }
+          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
+            setGameState(state.gameState);
+            setCurrentQuestion(state.currentQuestion || "");
+            setCurrentAnswer(state.currentAnswer || "");
+            setHasAnswered(state.hasAnswered || false);
+            setIsGM(state.isGM || false);
+            setCurrentGameSessionId(state.sessionId || "");
+          } else {
+            localStorage.removeItem(`synchro_state_${roomId}`);
           }
         }
       } catch (error) {
