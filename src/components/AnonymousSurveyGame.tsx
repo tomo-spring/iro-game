@@ -62,15 +62,6 @@ export function AnonymousSurveyGame({
   const [loading, setLoading] = useState(true);
   const [isRestoringState, setIsRestoringState] = useState(true);
 
-  // 回答同期用の状態
-  const [lastSyncTime, setLastSyncTime] = useState<number>(0);
-  const [syncInProgress, setSyncInProgress] = useState(false);
-
-  // 同期デバウンス用
-  const [syncDebounceTimer, setSyncDebounceTimer] = useState<NodeJS.Timeout | null>(null);
-  
-  // 最後の成功した同期時刻
-  const [lastSuccessfulSync, setLastSuccessfulSync] = useState<number>(0);
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
     const fetchGameParticipants = async () => {
@@ -185,81 +176,6 @@ export function AnonymousSurveyGame({
     localStorage.setItem(`anonymous_survey_state_${roomId}`, JSON.stringify(stateToSave));
   }, [gameState, currentQuestion, hasAnswered, isQuestioner, currentGameSessionId, roomId, isRestoringState]);
 
-  // 強制的にDBから回答状況を同期する関数
-  const forceSyncResponses = async (immediate: boolean = false) => {
-    if (!gameState.questionId || syncInProgress) return;
-    
-    // デバウンス処理（即座に実行する場合は除く）
-    if (!immediate && syncDebounceTimer) {
-      clearTimeout(syncDebounceTimer);
-    }
-    
-    if (!immediate) {
-      const timer = setTimeout(() => forceSyncResponses(true), 300);
-      setSyncDebounceTimer(timer);
-      return;
-    }
-    
-    setSyncInProgress(true);
-    console.log('🔄 Starting force sync responses...');
-    
-    try {
-      const responses = await gameService.getQuestionResponses(gameState.questionId);
-      const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
-      
-      // 現在の状態と比較
-      const currentCount = Object.keys(gameState.responses).length;
-      const dbCount = Object.keys(responseMap).length;
-      
-      console.log(`📊 Response count - Current: ${currentCount}, DB: ${dbCount}`);
-      
-      // 常に最新のDBデータで更新（カウントが同じでも内容が違う可能性があるため）
-      const currentResponseIds = new Set(Object.keys(gameState.responses));
-      const dbResponseIds = new Set(Object.keys(responseMap));
-      const hasContentDifference = 
-        currentResponseIds.size !== dbResponseIds.size ||
-        [...currentResponseIds].some(id => !dbResponseIds.has(id)) ||
-        [...dbResponseIds].some(id => !currentResponseIds.has(id));
-      
-      if (currentCount !== dbCount || hasContentDifference) {
-        console.log(`🔄 Syncing responses - Count diff: ${currentCount !== dbCount}, Content diff: ${hasContentDifference}`);
-        
-        setGameState((prev) => ({
-          ...prev,
-          responses: responseMap,
-        }));
-        
-        // 同期イベントをブロードキャスト（デバウンス付き）
-        setTimeout(async () => {
-          try {
-            const channel = supabase.channel(`sync-${roomId}-${Date.now()}`);
-            await channel.send({
-              type: "broadcast",
-              event: "sync_responses",
-              payload: {
-                responses: responseMap,
-                questionId: gameState.questionId,
-                timestamp: Date.now(),
-              },
-            });
-            setTimeout(() => supabase.removeChannel(channel), 1000);
-          } catch (error) {
-            console.warn('Sync broadcast failed:', error);
-          }
-        }, 100);
-      } else {
-        console.log('✅ Responses already in sync');
-      }
-      
-      setLastSuccessfulSync(Date.now());
-    } catch (error) {
-      console.error('❌ Failed to force sync responses:', error);
-    } finally {
-      setSyncInProgress(false);
-      setSyncDebounceTimer(null);
-    }
-  };
-
   // リアルタイム同期
   useEffect(() => {
     if (!roomId) return;
@@ -302,20 +218,13 @@ export function AnonymousSurveyGame({
       })
       .on("broadcast", { event: "answer_submitted" }, (payload) => {
         if (payload.payload) {
-          console.log('📨 Received answer broadcast:', payload.payload);
-          
-          // ブロードキャストを受信したら即座に強制同期
-          forceSyncResponses();
-        }
-      })
-      .on("broadcast", { event: "sync_responses" }, (payload) => {
-        if (payload.payload && payload.payload.responses) {
-          console.log('🔄 Syncing responses from broadcast:', payload.payload.responses);
           setGameState((prev) => ({
             ...prev,
-            responses: payload.payload.responses,
+            responses: {
+              ...prev.responses,
+              [payload.payload.participantId]: payload.payload.answer,
+            },
           }));
-          setLastSuccessfulSync(Date.now());
         }
       })
       .on("broadcast", { event: "show_results" }, () => {
@@ -513,61 +422,84 @@ export function AnonymousSurveyGame({
       return;
     }
 
-    console.log(`🎯 Submitting answer: ${answer} for question: ${gameState.questionId}`);
+    // モバイル環境での処理最適化
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     setHasAnswered(true);
 
     try {
-      // Step 1: データベースに保存
+      // モバイルでは少し待機してから送信
+      if (isMobile) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // データベースに回答を保存
       await gameService.submitResponse(
         gameState.questionId,
         currentParticipant.id,
         answer
       );
-      
-      console.log('✅ Response saved to database successfully');
 
-      // Step 2: 即座にDBから最新状況を取得
-      const responses = await gameService.getQuestionResponses(gameState.questionId);
-      const responseMap = responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.response }), {});
-      
-      console.log(`📊 Updated response count: ${Object.keys(responseMap).length}`);
-      
-      // Step 3: ローカル状態を更新
+      // ローカル状態を即座に更新
       setGameState((prev) => ({
         ...prev,
-        responses: responseMap,
+        responses: {
+          ...prev.responses,
+          [currentParticipant.id]: answer,
+        },
       }));
-      // Step 4: ブロードキャストで他のユーザーに通知
-      setTimeout(() => {
-        try {
-          const channelName = `answer-${roomId}-${Date.now()}`;
-          const channel = supabase.channel(channelName);
-          const result = await channel.send({
-            type: "broadcast",
-            event: "answer_submitted",
-            payload: {
-              participantId: currentParticipant.id,
-              answer,
-              responses: responseMap,
-              timestamp: Date.now(),
-            },
-          });
-          
-          console.log(`📡 Broadcast result: ${result}`);
-          setTimeout(() => supabase.removeChannel(channel), 2000);
-        } catch (broadcastError) {
-          console.warn('Broadcast failed:', broadcastError);
-        }
-      }, 100);
       
-      // Step 5: 追加の同期確認
-      setTimeout(() => {
-        forceSyncResponses(true);
-      }, 2000);
+      const channelName = `game-events-${roomId}`;
+      const channel = supabase.channel(channelName, {
+        config: {
+          broadcast: { self: false, ack: isMobile }, // モバイルでは確認応答を有効化
+        },
+      });
+      // モバイルでは接続確認
+      if (isMobile) {
+        await new Promise((resolve) => {
+          const subscription = channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              resolve(void 0);
+            }
+          });
+          setTimeout(() => resolve(void 0), 2000);
+        });
+      }
+
+      const result = await channel.send({
+        type: "broadcast",
+        event: "answer_submitted",
+        payload: {
+          participantId: currentParticipant.id,
+          answer,
+        },
+      });
+
+      // ブロードキャスト結果をログ出力
+      console.log('Answer broadcast result:', result);
+      
+      // モバイルでブロードキャストが失敗した場合の再試行
+      if (isMobile && result !== 'ok') {
+        setTimeout(async () => {
+          try {
+            await channel.send({
+              type: "broadcast",
+              event: "answer_submitted",
+              payload: {
+                participantId: currentParticipant.id,
+                answer,
+              },
+            });
+          } catch (retryError) {
+            console.warn('Answer broadcast retry failed:', retryError);
+          }
+        }, 1000);
+      }
       
     } catch (error) {
       setHasAnswered(false); // エラーの場合は回答状態をリセット
-      console.error('❌ Answer submission error:', error);
+      console.error('Answer submission error:', error);
       alert(
         `回答の送信に失敗しました: ${
           error instanceof Error ? error.message : "もう一度お試しください。"
@@ -577,14 +509,6 @@ export function AnonymousSurveyGame({
   };
 
   const handleShowResults = async () => {
-    console.log('🎬 Showing results...');
-    
-    // 結果表示前に確実に同期
-    await forceSyncResponses(true);
-    
-    // 少し待ってから結果表示（同期完了を待つ）
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
     try {
       const channelName = `game-events-${roomId}`;
       const channel = supabase.channel(channelName);
@@ -597,8 +521,6 @@ export function AnonymousSurveyGame({
 
       // ローカル状態も更新
       setGameState((prev) => ({ ...prev, phase: "results" }));
-      
-      console.log('✅ Results displayed');
     } catch (error) {}
   };
 
@@ -632,34 +554,6 @@ export function AnonymousSurveyGame({
   const yesCount = Object.values(gameState.responses).filter(Boolean).length;
   const totalResponses = Object.keys(gameState.responses).length;
   const allAnswered = totalResponses === gameParticipants.length;
-
-  // 定期的な回答状況同期（5秒ごと）
-  useEffect(() => {
-    if (!gameState.questionId || gameState.phase !== "answering") return;
-
-    // 初回同期
-    forceSyncResponses(true);
-
-    const syncInterval = setInterval(async () => {
-      // 最後の成功した同期から5秒以上経過している場合のみ実行
-      const now = Date.now();
-      if (now - lastSuccessfulSync > 5000) {
-        console.log('⏰ Periodic sync triggered');
-        forceSyncResponses(true);
-      }
-    }, 5000); // 5秒ごと
-
-    return () => clearInterval(syncInterval);
-  }, [gameState.questionId, gameState.phase, lastSuccessfulSync]);
-
-  // クリーンアップ
-  useEffect(() => {
-    return () => {
-      if (syncDebounceTimer) {
-        clearTimeout(syncDebounceTimer);
-      }
-    };
-  }, [syncDebounceTimer]);
 
   if (loading || isRestoringState) {
     return (
