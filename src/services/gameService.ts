@@ -1,6 +1,51 @@
 import { supabase } from '../lib/supabase';
 import { roomService } from './roomService';
 
+// 排他制御用のフラグとキュー
+const gameOperationLocks = new Map<string, boolean>();
+const gameOperationQueues = new Map<string, Array<() => Promise<any>>>();
+
+// 排他制御ヘルパー関数
+const withGameLock = async <T>(key: string, operation: () => Promise<T>): Promise<T> => {
+  // 既に実行中の場合はキューに追加
+  if (gameOperationLocks.get(key)) {
+    return new Promise((resolve, reject) => {
+      const queue = gameOperationQueues.get(key) || [];
+      queue.push(async () => {
+        try {
+          const result = await operation();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      gameOperationQueues.set(key, queue);
+    });
+  }
+
+  // ロックを取得
+  gameOperationLocks.set(key, true);
+  
+  try {
+    const result = await operation();
+    return result;
+  } finally {
+    // ロックを解放
+    gameOperationLocks.delete(key);
+    
+    // キューにある次の操作を実行
+    const queue = gameOperationQueues.get(key);
+    if (queue && queue.length > 0) {
+      const nextOperation = queue.shift()!;
+      gameOperationQueues.set(key, queue);
+      // 次の操作を非同期で実行
+      setTimeout(() => nextOperation(), 0);
+    } else {
+      gameOperationQueues.delete(key);
+    }
+  }
+};
+
 export interface GameSession {
   id: string;
   room_id: string;
