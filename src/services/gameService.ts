@@ -64,59 +64,61 @@ export interface SynchroResponse {
 
 export const gameService = {
   async createGameSession(roomId: string, gameType: string = 'anonymous_survey'): Promise<GameSession> {
-    console.log('Creating game session for room:', roomId);
-    
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxRetries = isMobile ? 3 : 1;
-    let retryCount = 0;
-    
-    const attemptCreateSession = async (): Promise<GameSession> => {
-      try {
-        if (isMobile && retryCount > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
-        }
-
-      // Get current participant to set as creator
-      const currentParticipant = await roomService.getCurrentParticipantFromRoom(roomId);
+    return withGameLock(`createSession-${roomId}-${gameType}`, async () => {
+      console.log('Creating game session for room:', roomId);
       
-      const { data, error } = await supabase
-        .from('game_sessions')
-        .insert({
-          room_id: roomId,
-          game_type: gameType,
-          status: 'active',
-          created_by: currentParticipant?.id || null
-        })
-        .select()
-        .single();
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const maxRetries = isMobile ? 3 : 1;
+      let retryCount = 0;
+      
+      const attemptCreateSession = async (): Promise<GameSession> => {
+        try {
+          if (isMobile && retryCount > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
+          }
 
-      if (error) {
-        console.error('Error creating game session:', error);
-        console.error('Session creation error details:', JSON.stringify(error, null, 2));
-        throw error;
-      }
-
-      console.log('Game session created:', data);
-      return data;
-      } catch (error) {
-        console.error(`Create session attempt ${retryCount + 1} failed:`, error);
+        // Get current participant to set as creator
+        const currentParticipant = await roomService.getCurrentParticipantFromRoom(roomId);
         
-        if (retryCount < maxRetries - 1) {
-          retryCount++;
-          console.log(`Retrying create session (attempt ${retryCount + 1}/${maxRetries})...`);
-          return attemptCreateSession();
+        const { data, error } = await supabase
+          .from('game_sessions')
+          .insert({
+            room_id: roomId,
+            game_type: gameType,
+            status: 'active',
+            created_by: currentParticipant?.id || null
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error creating game session:', error);
+          console.error('Session creation error details:', JSON.stringify(error, null, 2));
+          throw error;
         }
-        
-        throw error;
-      }
-    };
 
-    try {
-      return await attemptCreateSession();
-    } catch (error) {
-      console.error('Failed to create game session after all retries:', error);
-      throw new Error(`ゲームセッションの作成に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
-    }
+        console.log('Game session created:', data);
+        return data;
+        } catch (error) {
+          console.error(`Create session attempt ${retryCount + 1} failed:`, error);
+          
+          if (retryCount < maxRetries - 1) {
+            retryCount++;
+            console.log(`Retrying create session (attempt ${retryCount + 1}/${maxRetries})...`);
+            return attemptCreateSession();
+          }
+          
+          throw error;
+        }
+      };
+
+      try {
+        return await attemptCreateSession();
+      } catch (error) {
+        console.error('Failed to create game session after all retries:', error);
+        throw new Error(`ゲームセッションの作成に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
+      }
+    });
   },
 
   async getActiveGameSession(roomId: string): Promise<GameSession | null> {
@@ -185,111 +187,115 @@ export const gameService = {
   },
 
   async createQuestion(sessionId: string, question: string, questionerId: string): Promise<GameQuestion> {
-    console.log('Creating question for session:', sessionId);
-    
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxRetries = isMobile ? 3 : 1;
-    let retryCount = 0;
-    
-    const attemptCreateQuestion = async (): Promise<GameQuestion> => {
+    return withGameLock(`createQuestion-${sessionId}`, async () => {
+      console.log('Creating question for session:', sessionId);
+      
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const maxRetries = isMobile ? 3 : 1;
+      let retryCount = 0;
+      
+      const attemptCreateQuestion = async (): Promise<GameQuestion> => {
+        try {
+          if (isMobile && retryCount > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
+          }
+
+        const { data, error } = await supabase
+          .from('game_questions')
+          .insert({
+            session_id: sessionId,
+            question,
+            questioner_id: questionerId,
+            is_active: true
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error creating question:', error);
+          console.error('Question creation error details:', JSON.stringify(error, null, 2));
+          throw error;
+        }
+
+        console.log('Question created:', data);
+        return data;
+        } catch (error) {
+          console.error(`Create question attempt ${retryCount + 1} failed:`, error);
+          
+          if (retryCount < maxRetries - 1) {
+            retryCount++;
+            console.log(`Retrying create question (attempt ${retryCount + 1}/${maxRetries})...`);
+            return attemptCreateQuestion();
+          }
+          
+          throw error;
+        }
+      };
+
       try {
-        if (isMobile && retryCount > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
-        }
-
-      const { data, error } = await supabase
-        .from('game_questions')
-        .insert({
-          session_id: sessionId,
-          question,
-          questioner_id: questionerId,
-          is_active: true
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error creating question:', error);
-        console.error('Question creation error details:', JSON.stringify(error, null, 2));
-        throw error;
-      }
-
-      console.log('Question created:', data);
-      return data;
+        return await attemptCreateQuestion();
       } catch (error) {
-        console.error(`Create question attempt ${retryCount + 1} failed:`, error);
-        
-        if (retryCount < maxRetries - 1) {
-          retryCount++;
-          console.log(`Retrying create question (attempt ${retryCount + 1}/${maxRetries})...`);
-          return attemptCreateQuestion();
-        }
-        
-        throw error;
+        console.error('Failed to create question after all retries:', error);
+        throw new Error(`質問の作成に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
       }
-    };
-
-    try {
-      return await attemptCreateQuestion();
-    } catch (error) {
-      console.error('Failed to create question after all retries:', error);
-      throw new Error(`質問の作成に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
-    }
+    });
   },
 
   async submitResponse(questionId: string, participantId: string, response: boolean): Promise<GameResponse> {
-    console.log('Submitting response for question:', questionId);
-    
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxRetries = isMobile ? 3 : 1;
-    let retryCount = 0;
-    
-    const attemptSubmitResponse = async (): Promise<GameResponse> => {
+    return withGameLock(`submitResponse-${questionId}-${participantId}`, async () => {
+      console.log('Submitting response for question:', questionId);
+      
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const maxRetries = isMobile ? 3 : 1;
+      let retryCount = 0;
+      
+      const attemptSubmitResponse = async (): Promise<GameResponse> => {
+        try {
+          if (isMobile && retryCount > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
+          }
+
+        // Use upsert to handle duplicate responses
+        const { data, error } = await supabase
+          .from('game_responses')
+          .upsert({
+            question_id: questionId,
+            participant_id: participantId,
+            response
+          }, {
+            onConflict: 'question_id,participant_id'
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error submitting response:', error);
+          console.error('Response submission error details:', JSON.stringify(error, null, 2));
+          throw error;
+        }
+
+        console.log('Response submitted:', data);
+        return data;
+        } catch (error) {
+          console.error(`Submit response attempt ${retryCount + 1} failed:`, error);
+          
+          if (retryCount < maxRetries - 1) {
+            retryCount++;
+            console.log(`Retrying submit response (attempt ${retryCount + 1}/${maxRetries})...`);
+            return attemptSubmitResponse();
+          }
+          
+          throw error;
+        }
+      };
+
       try {
-        if (isMobile && retryCount > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
-        }
-
-      // Use upsert to handle duplicate responses
-      const { data, error } = await supabase
-        .from('game_responses')
-        .upsert({
-          question_id: questionId,
-          participant_id: participantId,
-          response
-        }, {
-          onConflict: 'question_id,participant_id'
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error submitting response:', error);
-        console.error('Response submission error details:', JSON.stringify(error, null, 2));
-        throw error;
-      }
-
-      console.log('Response submitted:', data);
-      return data;
+        return await attemptSubmitResponse();
       } catch (error) {
-        console.error(`Submit response attempt ${retryCount + 1} failed:`, error);
-        
-        if (retryCount < maxRetries - 1) {
-          retryCount++;
-          console.log(`Retrying submit response (attempt ${retryCount + 1}/${maxRetries})...`);
-          return attemptSubmitResponse();
-        }
-        
-        throw error;
+        console.error('Failed to submit response after all retries:', error);
+        throw new Error(`回答の送信に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
       }
-    };
-
-    try {
-      return await attemptSubmitResponse();
-    } catch (error) {
-      console.error('Failed to submit response after all retries:', error);
-      throw new Error(`回答の送信に失敗しました。(${error instanceof Error ? error.message : 'Unknown error'})`);
-    }
+    });
   },
 
   async getQuestionResponses(questionId: string): Promise<GameResponse[]> {
