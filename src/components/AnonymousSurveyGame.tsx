@@ -448,6 +448,8 @@ export function AnonymousSurveyGame({
           [currentParticipant.id]: answer,
         },
       }));
+      
+      const channelName = `game-events-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: false, ack: isMobile }, // モバイルでは確認応答を有効化
