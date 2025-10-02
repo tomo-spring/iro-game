@@ -62,6 +62,10 @@ export function AnonymousSurveyGame({
   const [loading, setLoading] = useState(true);
   const [isRestoringState, setIsRestoringState] = useState(true);
 
+  // 回答数同期の状態管理
+  const [responseCounts, setResponseCounts] = useState<{[questionId: string]: number}>({});
+  const [lastSyncTime, setLastSyncTime] = useState<number>(0);
+
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
     const fetchGameParticipants = async () => {
@@ -88,6 +92,41 @@ export function AnonymousSurveyGame({
 
     fetchGameParticipants();
   }, [roomId]);
+
+  // 回答数を定期的に同期する関数
+  const syncResponseCounts = useCallback(async (questionId: string) => {
+    if (!questionId) return;
+    
+    const now = Date.now();
+    // 1秒以内の重複リクエストを防ぐ
+    if (now - lastSyncTime < 1000) return;
+    
+    try {
+      const responses = await gameService.getQuestionResponses(questionId);
+      const count = responses.length;
+      
+      setResponseCounts(prev => ({
+        ...prev,
+        [questionId]: count
+      }));
+      setLastSyncTime(now);
+      
+      // ローカル状態も更新（重複を避けるため、既存の回答のみ保持）
+      if (currentParticipant) {
+        const responseMap = responses.reduce((acc, r) => ({ 
+          ...acc, 
+          [r.participant_id]: r.response 
+        }), {});
+        
+        setGameState(prev => ({
+          ...prev,
+          responses: responseMap
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to sync response counts:', error);
+    }
+  }, [currentParticipant, lastSyncTime]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -127,6 +166,9 @@ export function AnonymousSurveyGame({
               
               setHasAnswered(!!myResponse);
               setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
+              
+              // 回答数を同期
+              await syncResponseCounts(activeQuestion.id);
             }
           }
         }
@@ -158,7 +200,7 @@ export function AnonymousSurveyGame({
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant]);
+  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
@@ -180,7 +222,8 @@ export function AnonymousSurveyGame({
   useEffect(() => {
     if (!roomId) return;
 
-    const channelName = `game-events-${roomId}`;
+    // 一意のチャンネル名を生成（重複を避ける）
+    const channelName = `anonymous-survey-${roomId}-${Date.now()}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "questioner_selected" }, (payload) => {
@@ -218,6 +261,7 @@ export function AnonymousSurveyGame({
       })
       .on("broadcast", { event: "answer_submitted" }, (payload) => {
         if (payload.payload) {
+          // ローカル状態を即座に更新
           setGameState((prev) => ({
             ...prev,
             responses: {
@@ -225,6 +269,17 @@ export function AnonymousSurveyGame({
               [payload.payload.participantId]: payload.payload.answer,
             },
           }));
+          
+          // 回答数カウントも更新
+          if (gameState.questionId) {
+            setResponseCounts(prev => ({
+              ...prev,
+              [gameState.questionId]: Object.keys({
+                ...gameState.responses,
+                [payload.payload.participantId]: payload.payload.answer,
+              }).length
+            }));
+          }
         }
       })
       .on("broadcast", { event: "show_results" }, () => {
@@ -263,10 +318,18 @@ export function AnonymousSurveyGame({
       })
       .subscribe();
 
+    // 定期的な回答数同期（5秒間隔）
+    const syncInterval = setInterval(() => {
+      if (gameState.questionId && gameState.phase === "answering") {
+        syncResponseCounts(gameState.questionId);
+      }
+    }, 5000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(syncInterval);
     };
-  }, [roomId, currentGameSessionId, onClose, currentParticipant]);
+  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses]);
 
   const handleBecomeQuestioner = async () => {
     if (!currentParticipant) return;
@@ -422,16 +485,26 @@ export function AnonymousSurveyGame({
       return;
     }
 
-    // モバイル環境での処理最適化
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
+    // 楽観的更新：まずローカル状態を更新
     setHasAnswered(true);
+    setGameState((prev) => ({
+      ...prev,
+      responses: {
+        ...prev.responses,
+        [currentParticipant.id]: answer,
+      },
+    }));
+    
+    // 回答数も即座に更新
+    setResponseCounts(prev => ({
+      ...prev,
+      [gameState.questionId]: Object.keys({
+        ...gameState.responses,
+        [currentParticipant.id]: answer,
+      }).length
+    }));
 
     try {
-      // モバイルでは少し待機してから送信
-      if (isMobile) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
 
       // データベースに回答を保存
       await gameService.submitResponse(
@@ -440,32 +513,9 @@ export function AnonymousSurveyGame({
         answer
       );
 
-      // ローカル状態を即座に更新
-      setGameState((prev) => ({
-        ...prev,
-        responses: {
-          ...prev.responses,
-          [currentParticipant.id]: answer,
-        },
-      }));
-      
-      const channelName = `game-events-${roomId}`;
-      const channel = supabase.channel(channelName, {
-        config: {
-          broadcast: { self: false, ack: isMobile }, // モバイルでは確認応答を有効化
-        },
-      });
-      // モバイルでは接続確認
-      if (isMobile) {
-        await new Promise((resolve) => {
-          const subscription = channel.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              resolve(void 0);
-            }
-          });
-          setTimeout(() => resolve(void 0), 2000);
-        });
-      }
+      // 一意のチャンネル名でブロードキャスト
+      const channelName = `answer-broadcast-${roomId}-${Date.now()}`;
+      const channel = supabase.channel(channelName);
 
       const result = await channel.send({
         type: "broadcast",
@@ -473,32 +523,33 @@ export function AnonymousSurveyGame({
         payload: {
           participantId: currentParticipant.id,
           answer,
+          questionId: gameState.questionId, // 質問IDも含める
         },
       });
 
-      // ブロードキャスト結果をログ出力
-      console.log('Answer broadcast result:', result);
-      
-      // モバイルでブロードキャストが失敗した場合の再試行
-      if (isMobile && result !== 'ok') {
-        setTimeout(async () => {
-          try {
-            await channel.send({
-              type: "broadcast",
-              event: "answer_submitted",
-              payload: {
-                participantId: currentParticipant.id,
-                answer,
-              },
-            });
-          } catch (retryError) {
-            console.warn('Answer broadcast retry failed:', retryError);
-          }
-        }, 1000);
-      }
+      // チャンネルをクリーンアップ
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 2000);
       
     } catch (error) {
-      setHasAnswered(false); // エラーの場合は回答状態をリセット
+      // エラーの場合は楽観的更新を取り消し
+      setHasAnswered(false);
+      setGameState((prev) => {
+        const newResponses = { ...prev.responses };
+        delete newResponses[currentParticipant.id];
+        return {
+          ...prev,
+          responses: newResponses,
+        };
+      });
+      
+      // 回答数も元に戻す
+      setResponseCounts(prev => ({
+        ...prev,
+        [gameState.questionId]: Math.max(0, (prev[gameState.questionId] || 0) - 1)
+      }));
+      
       console.error('Answer submission error:', error);
       alert(
         `回答の送信に失敗しました: ${
@@ -551,8 +602,9 @@ export function AnonymousSurveyGame({
     } catch (error) {}
   };
 
+  // 回答数は同期された値を優先的に使用
+  const totalResponses = gameState.questionId ? (responseCounts[gameState.questionId] || Object.keys(gameState.responses).length) : 0;
   const yesCount = Object.values(gameState.responses).filter(Boolean).length;
-  const totalResponses = Object.keys(gameState.responses).length;
   const allAnswered = totalResponses === gameParticipants.length;
 
   if (loading || isRestoringState) {
