@@ -182,6 +182,13 @@ export const gameService = {
         throw error;
       }
 
+      if (data) {
+        console.log('✅ アクティブなゲームセッションを発見:', {
+          id: data.id,
+          game_type: data.game_type,
+          created_at: data.created_at
+        });
+      }
       return data;
     } catch (error) {
       console.error('Failed to get active game session:', error);

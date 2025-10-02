@@ -92,14 +92,14 @@ export function AnonymousSurveyGame({
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
     const restoreGameState = async () => {
-      if (!roomId) return;
+      if (!roomId || !gameParticipants.length || !currentParticipant) return;
 
       setIsRestoringState(true);
 
       try {
         // まずDBから最新のゲーム状態を取得
         const activeSession = await gameService.getActiveGameSession(roomId);
-        if (activeSession) {
+        if (activeSession && activeSession.game_type === 'anonymous_survey') {
           setCurrentGameSessionId(activeSession.id);
 
           // アクティブな質問があるかチェック
@@ -115,32 +115,33 @@ export function AnonymousSurveyGame({
             );
 
             // 自分の回答状況をチェック
-            if (currentParticipant) {
-              const responses = await gameService.getQuestionResponses(
-                activeQuestion.id
-              );
-              const myResponse = responses.find(
-                (r) => r.participant_id === currentParticipant.id
-              );
+            const responses = await gameService.getQuestionResponses(
+              activeQuestion.id
+            );
+            const myResponse = responses.find(
+              (r) => r.participant_id === currentParticipant.id
+            );
 
-              setGameState({
-                phase: "answering",
-                question: activeQuestion.question,
-                questionId: activeQuestion.id,
-                responses: responses.reduce(
-                  (acc, r) => ({ ...acc, [r.participant_id]: r.response }),
-                  {}
-                ),
-                questionerId: activeQuestion.questioner_id,
-                questionerName: questioner?.nickname || "不明",
-                sessionId: activeSession.id,
-              });
+            setGameState({
+              phase: "answering",
+              question: activeQuestion.question,
+              questionId: activeQuestion.id,
+              responses: responses.reduce(
+                (acc, r) => ({ ...acc, [r.participant_id]: r.response }),
+                {}
+              ),
+              questionerId: activeQuestion.questioner_id,
+              questionerName: questioner?.nickname || "不明",
+              sessionId: activeSession.id,
+            });
 
-              setHasAnswered(!!myResponse);
-              setIsQuestioner(
-                activeQuestion.questioner_id === currentParticipant.id
-              );
-            }
+            setHasAnswered(!!myResponse);
+            setIsQuestioner(
+              activeQuestion.questioner_id === currentParticipant.id
+            );
+            
+            console.log("✅ Anonymous Survey ゲーム状態を復元しました");
+            return; // DBから復元できた場合はローカルストレージのチェックは不要
           }
         }
 
@@ -173,7 +174,7 @@ export function AnonymousSurveyGame({
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant]);
+  }, [roomId, gameParticipants.length, currentParticipant?.id]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {

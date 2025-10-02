@@ -83,7 +83,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
     const restoreGameState = async () => {
-      if (!roomId) return;
+      if (!roomId || !gameParticipants.length || !currentParticipant) return;
       
       setIsRestoringState(true);
       
@@ -102,24 +102,25 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             const gm = gameParticipants.find(p => p.id === activeQuestion.gm_id);
             
             // 自分の回答状況をチェック
-            if (currentParticipant) {
-              const responses = await gameService.getSynchroResponses(activeQuestion.id);
-              const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
-              
-              setGameState({
-                phase: "answering",
-                question: activeQuestion.question,
-                questionId: activeQuestion.id,
-                responses: responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.answer }), {}),
-                gmId: activeQuestion.gm_id,
-                gmName: gm?.nickname || "不明",
-                sessionId: activeSession.id,
-              });
-              
-              setHasAnswered(!!myResponse);
-              setCurrentAnswer(myResponse?.answer || "");
-              setIsGM(activeQuestion.gm_id === currentParticipant.id);
-            }
+            const responses = await gameService.getSynchroResponses(activeQuestion.id);
+            const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
+            
+            setGameState({
+              phase: "answering",
+              question: activeQuestion.question,
+              questionId: activeQuestion.id,
+              responses: responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.answer }), {}),
+              gmId: activeQuestion.gm_id,
+              gmName: gm?.nickname || "不明",
+              sessionId: activeSession.id,
+            });
+            
+            setHasAnswered(!!myResponse);
+            setCurrentAnswer(myResponse?.answer || "");
+            setIsGM(activeQuestion.gm_id === currentParticipant.id);
+            
+            console.log("✅ Synchro ゲーム状態を復元しました");
+            return; // DBから復元できた場合はローカルストレージのチェックは不要
           }
         }
         
@@ -150,7 +151,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant]);
+  }, [roomId, gameParticipants.length, currentParticipant?.id]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {

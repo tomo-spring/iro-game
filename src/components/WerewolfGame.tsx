@@ -123,7 +123,7 @@ export function WerewolfGame({
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
     const restoreGameState = async () => {
-      if (!roomId) return;
+      if (!roomId || !gameParticipants.length || !currentParticipant) return;
       
       setIsRestoringState(true);
       
@@ -157,6 +157,9 @@ export function WerewolfGame({
             }
             
             setReverseMode(activeSession.reverse_mode);
+            
+            console.log("✅ Werewolf ゲーム状態を復元しました");
+            return; // DBから復元できた場合はローカルストレージのチェックは不要
           }
         }
         
@@ -188,7 +191,7 @@ export function WerewolfGame({
     };
 
     restoreGameState();
-  }, [roomId, currentParticipant]);
+  }, [roomId, gameParticipants.length, currentParticipant?.id]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {

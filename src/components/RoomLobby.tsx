@@ -31,6 +31,9 @@ export function RoomLobby() {
 
   const { participants, loading } = useRoomParticipants(roomId || "");
 
+  // ゲーム状態復元の優先度を上げる
+  const [gameStateRestored, setGameStateRestored] = useState(false);
+
   // Monitor Supabase connection status
   useEffect(() => {
     const checkConnection = () => {
@@ -54,7 +57,7 @@ export function RoomLobby() {
   // ページ読み込み時に進行中のゲームをチェック（データベース + ローカルストレージ）
   useEffect(() => {
     const checkActiveGame = async () => {
-      if (!roomId) return;
+      if (!roomId || gameStateRestored) return;
 
       setIsCheckingActiveGame(true);
 
@@ -75,6 +78,7 @@ export function RoomLobby() {
           setSelectedGameType(gameType);
           setGameSessionId(activeSession.id);
           setGameActive(true);
+          setGameStateRestored(true);
 
           // ローカルストレージも更新
           const gameState = {
@@ -107,6 +111,7 @@ export function RoomLobby() {
             setSelectedGameType(gameState.gameType);
             setGameSessionId(gameState.sessionId);
             setGameActive(true);
+            setGameStateRestored(true);
           } else {
             // 古いゲーム状態を削除
             console.log("🗑️ 古いゲーム状態を削除");
@@ -121,11 +126,12 @@ export function RoomLobby() {
         localStorage.removeItem(`active_game_${roomId}`);
       } finally {
         setIsCheckingActiveGame(false);
+        setGameStateRestored(true);
       }
     };
 
     checkActiveGame();
-  }, [roomId]);
+  }, [roomId, gameStateRestored]);
 
   // ゲーム開始の監視
   useEffect(() => {
@@ -152,6 +158,7 @@ export function RoomLobby() {
           setGameSessionId(payload.payload.sessionId);
           setGameActive(true);
           setShowGameInstructions(false);
+          setGameStateRestored(true);
         }
       })
       .on("broadcast", { event: "game_end" }, () => {
@@ -159,6 +166,7 @@ export function RoomLobby() {
         localStorage.removeItem(`active_game_${roomId}`);
         setGameActive(false);
         setGameSessionId(null);
+        setGameStateRestored(false);
       })
       .subscribe();
 
@@ -309,9 +317,10 @@ export function RoomLobby() {
     }
     setGameActive(false);
     setGameSessionId(null);
+    setGameStateRestored(false);
   };
 
-  if (loading || isCheckingActiveGame) {
+  if (loading || isCheckingActiveGame || !gameStateRestored) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -321,7 +330,11 @@ export function RoomLobby() {
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
           <p className="text-black font-bold text-lg">
-            {loading ? "ルームに参加中..." : "ゲーム状態を確認中..."}
+            {loading 
+              ? "ルームに参加中..." 
+              : isCheckingActiveGame 
+              ? "ゲーム状態を確認中..." 
+              : "ゲーム画面を準備中..."}
           </p>
         </div>
       </div>
