@@ -5,6 +5,10 @@ import { roomService } from './roomService';
 const gameOperationLocks = new Map<string, boolean>();
 const gameOperationQueues = new Map<string, Array<() => Promise<any>>>();
 
+// 回答取得のキャッシュ（重複リクエストを防ぐ）
+const responseCache = new Map<string, { data: any[], timestamp: number }>();
+const CACHE_DURATION = 2000; // 2秒間キャッシュ
+
 // 排他制御ヘルパー関数
 const withGameLock = async <T>(key: string, operation: () => Promise<T>): Promise<T> => {
   // 既に実行中の場合はキューに追加
@@ -344,6 +348,14 @@ export const gameService = {
   },
 
   async getQuestionResponses(questionId: string): Promise<GameResponse[]> {
+    // キャッシュをチェック
+    const cached = responseCache.get(`responses-${questionId}`);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      return cached.data;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('game_responses')
@@ -354,6 +366,12 @@ export const gameService = {
         console.error('Error getting question responses:', error);
         throw error;
       }
+
+      // キャッシュに保存
+      responseCache.set(`responses-${questionId}`, {
+        data: data || [],
+        timestamp: now
+      });
 
       return data || [];
     } catch (error) {
@@ -422,6 +440,14 @@ export const gameService = {
   },
 
   async getRankingResponses(questionId: string): Promise<RankingResponse[]> {
+    // キャッシュをチェック
+    const cached = responseCache.get(`ranking-responses-${questionId}`);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      return cached.data;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('ranking_responses')
@@ -432,6 +458,12 @@ export const gameService = {
         console.error('Error getting ranking responses:', error);
         throw error;
       }
+
+      // キャッシュに保存
+      responseCache.set(`ranking-responses-${questionId}`, {
+        data: data || [],
+        timestamp: now
+      });
 
       return data || [];
     } catch (error) {
@@ -500,6 +532,14 @@ export const gameService = {
   },
 
   async getSynchroResponses(questionId: string): Promise<SynchroResponse[]> {
+    // キャッシュをチェック
+    const cached = responseCache.get(`synchro-responses-${questionId}`);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      return cached.data;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('synchro_responses')
@@ -511,6 +551,12 @@ export const gameService = {
         throw error;
       }
 
+      // キャッシュに保存
+      responseCache.set(`synchro-responses-${questionId}`, {
+        data: data || [],
+        timestamp: now
+      });
+
       return data || [];
     } catch (error) {
       console.error('Failed to get synchro responses:', error);
@@ -521,6 +567,17 @@ export const gameService = {
   async getParticipantsForGame(roomId: string) {
     console.log('Fetching participants for game in room:', roomId);
     return await roomService.getParticipants(roomId);
+  },
+
+  // キャッシュをクリアする関数
+  clearResponseCache(questionId?: string): void {
+    if (questionId) {
+      responseCache.delete(`responses-${questionId}`);
+      responseCache.delete(`ranking-responses-${questionId}`);
+      responseCache.delete(`synchro-responses-${questionId}`);
+    } else {
+      responseCache.clear();
+    }
   },
 
   async endGameSession(sessionId: string): Promise<void> {
@@ -537,6 +594,9 @@ export const gameService = {
         console.error('Error ending game session:', error);
         throw error;
       }
+
+      // セッション終了時にキャッシュをクリア
+      responseCache.clear();
 
       console.log('Game session ended:', sessionId);
     } catch (error) {
