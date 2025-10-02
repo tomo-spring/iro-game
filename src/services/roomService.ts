@@ -28,8 +28,19 @@ const clearCurrentParticipant = () => {
 export const roomService = {
   async joinRoom(roomId: string, nickname: string) {
     const sessionToken = getSessionToken();
+    
+    // モバイル環境での接続確認
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const maxRetries = isMobile ? 5 : 3;
+    let retryCount = 0;
 
-    try {
+    const attemptJoinRoom = async (): Promise<any> => {
+      try {
+        // モバイルでは少し待機してから実行
+        if (isMobile && retryCount > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
+
       // First ensure room exists
       const { error: roomError } = await supabase.from("rooms").upsert(
         {
@@ -42,6 +53,7 @@ export const roomService = {
 
       if (roomError) {
         console.error("Error creating/updating room:", roomError);
+        console.error("Room error details:", JSON.stringify(roomError, null, 2));
         throw roomError;
       }
 
@@ -75,6 +87,7 @@ export const roomService = {
 
       if (error) {
         console.error("Error joining room:", error);
+        console.error("Join error details:", JSON.stringify(error, null, 2));
         throw error;
       }
       setCurrentParticipant(data);
@@ -96,9 +109,24 @@ export const roomService = {
       });
 
       return data;
+      } catch (error) {
+        console.error(`Join room attempt ${retryCount + 1} failed:`, error);
+        
+        if (retryCount < maxRetries - 1) {
+          retryCount++;
+          console.log(`Retrying join room (attempt ${retryCount + 1}/${maxRetries})...`);
+          return attemptJoinRoom();
+        }
+        
+        throw error;
+      }
+    };
+
+    try {
+      return await attemptJoinRoom();
     } catch (error) {
-      console.error("Failed to join room:", error);
-      throw error;
+      console.error("Failed to join room after all retries:", error);
+      throw new Error(`ルームへの参加に失敗しました。ネットワーク接続を確認してください。(${error instanceof Error ? error.message : 'Unknown error'})`);
     }
   },
 

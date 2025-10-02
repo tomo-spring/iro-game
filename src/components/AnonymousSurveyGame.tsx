@@ -422,9 +422,17 @@ export function AnonymousSurveyGame({
       return;
     }
 
+    // モバイル環境での処理最適化
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     setHasAnswered(true);
 
     try {
+      // モバイルでは少し待機してから送信
+      if (isMobile) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
       // データベースに回答を保存
       await gameService.submitResponse(
         gameState.questionId,
@@ -432,8 +440,31 @@ export function AnonymousSurveyGame({
         answer
       );
 
-      const channelName = `game-events-${roomId}`;
+      // ローカル状態を即座に更新
+      setGameState((prev) => ({
+        ...prev,
+        responses: {
+          ...prev.responses,
+          [currentParticipant.id]: answer,
+        },
+      }));
+      const channel = supabase.channel(channelName, {
+        config: {
+          broadcast: { self: false, ack: isMobile }, // モバイルでは確認応答を有効化
+        },
+      });
       const channel = supabase.channel(channelName);
+      // モバイルでは接続確認
+      if (isMobile) {
+        await new Promise((resolve) => {
+          const subscription = channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              resolve(void 0);
+            }
+          });
+          setTimeout(() => resolve(void 0), 2000);
+        });
+      }
 
       const result = await channel.send({
         type: "broadcast",
@@ -444,16 +475,30 @@ export function AnonymousSurveyGame({
         },
       });
 
-      // ローカル状態も更新
-      setGameState((prev) => ({
-        ...prev,
-        responses: {
-          ...prev.responses,
-          [currentParticipant.id]: answer,
-        },
-      }));
+      // ブロードキャスト結果をログ出力
+      console.log('Answer broadcast result:', result);
+      
+      // モバイルでブロードキャストが失敗した場合の再試行
+      if (isMobile && result !== 'ok') {
+        setTimeout(async () => {
+          try {
+            await channel.send({
+              type: "broadcast",
+              event: "answer_submitted",
+              payload: {
+                participantId: currentParticipant.id,
+                answer,
+              },
+            });
+          } catch (retryError) {
+            console.warn('Answer broadcast retry failed:', retryError);
+          }
+        }, 1000);
+      }
+      
     } catch (error) {
       setHasAnswered(false); // エラーの場合は回答状態をリセット
+      console.error('Answer submission error:', error);
       alert(
         `回答の送信に失敗しました: ${
           error instanceof Error ? error.message : "もう一度お試しください。"
