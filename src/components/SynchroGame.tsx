@@ -116,48 +116,6 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       console.error('Failed to sync synchro response counts:', error);
     }
   }, [lastSyncTime]);
-        const channel = supabase.channel(`synchro-game-events-${roomId}`);
-      } catch (error) {
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchGameParticipants();
-  }, [roomId]);
-
-  // 回答数を定期的に同期する関数
-  const syncResponseCounts = useCallback(async (questionId: string) => {
-    if (!questionId) return;
-    
-    const now = Date.now();
-    // 500ms以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 500) return;
-    
-    try {
-      const responses = await gameService.getSynchroResponses(questionId);
-      const count = responses.length;
-      
-      setResponseCounts(prev => ({
-        ...prev,
-        [questionId]: count
-      }));
-      setLastSyncTime(now);
-      
-      // ローカル状態も更新
-      const responseMap = responses.reduce((acc, r) => ({ 
-        ...acc, 
-        [r.participant_id]: r.answer 
-      }), {});
-      
-      setGameState(prev => ({
-        ...prev,
-        responses: responseMap
-      }));
-    } catch (error) {
-      console.error('Failed to sync synchro response counts:', error);
-    }
-  }, [lastSyncTime]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -200,27 +158,32 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
               setIsGM(activeQuestion.gm_id === currentParticipant.id);
               
               // 回答数を同期
-        // 回答送信後に正確な回答数を同期
-        setTimeout(() => {
-          syncResponseCounts(gameState.questionId);
-        }, 500);
-        
-        const storedState = localStorage.getItem(`synchro_state_${roomId}`);
-        if (storedState) {
-          const state = JSON.parse(storedState);
-          const now = Date.now();
-          const stateTime = new Date(state.timestamp).getTime();
+              syncResponseCounts(activeQuestion.id);
+            }
+          }
+        } else {
+          // 回答送信後に正確な回答数を同期
+          setTimeout(() => {
+            syncResponseCounts(gameState.questionId);
+          }, 500);
           
-          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-            setGameState(state.gameState);
-            setCurrentQuestion(state.currentQuestion || "");
-            setCurrentAnswer(state.currentAnswer || "");
-            setHasAnswered(state.hasAnswered || false);
-            setIsGM(state.isGM || false);
-            setCurrentGameSessionId(state.sessionId || "");
-          } else {
-            localStorage.removeItem(`synchro_state_${roomId}`);
+          const storedState = localStorage.getItem(`synchro_state_${roomId}`);
+          if (storedState) {
+            const state = JSON.parse(storedState);
+            const now = Date.now();
+            const stateTime = new Date(state.timestamp).getTime();
+            
+            // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+            if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
+              setGameState(state.gameState);
+              setCurrentQuestion(state.currentQuestion || "");
+              setCurrentAnswer(state.currentAnswer || "");
+              setHasAnswered(state.hasAnswered || false);
+              setIsGM(state.isGM || false);
+              setCurrentGameSessionId(state.sessionId || "");
+            } else {
+              localStorage.removeItem(`synchro_state_${roomId}`);
+            }
           }
         }
       } catch (error) {
@@ -232,7 +195,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts]);
+  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts, gameState.questionId]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
