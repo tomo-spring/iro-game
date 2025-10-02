@@ -129,22 +129,19 @@ export const gameService = {
           .select('*')
           .eq('session_id', sessionId)
           .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1),
+          .order('created_at', { ascending: false }),
         supabase
           .from('ranking_questions')
           .select('*')
           .eq('session_id', sessionId)
           .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1),
+          .order('created_at', { ascending: false }),
         supabase
           .from('synchro_questions')
           .select('*')
           .eq('session_id', sessionId)
           .eq('is_active', true)
           .order('created_at', { ascending: false })
-          .limit(1)
       ]);
 
       return {

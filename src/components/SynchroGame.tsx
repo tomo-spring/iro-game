@@ -88,13 +88,49 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
       setIsRestoringState(true);
       
       try {
+        // まずDBから最新のゲーム状態を取得
+        const activeSession = await gameService.getActiveGameSession(roomId);
+        if (activeSession && activeSession.game_type === 'synchro') {
+          setCurrentGameSessionId(activeSession.id);
+          
+          // アクティブな質問があるかチェック
+          const { synchroQuestions } = await gameService.getActiveQuestions(activeSession.id);
+          if (synchroQuestions.length > 0) {
+            const activeQuestion = synchroQuestions[0];
+            
+            // GM情報を取得
+            const gm = gameParticipants.find(p => p.id === activeQuestion.gm_id);
+            
+            // 自分の回答状況をチェック
+            if (currentParticipant) {
+              const responses = await gameService.getSynchroResponses(activeQuestion.id);
+              const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
+              
+              setGameState({
+                phase: "answering",
+                question: activeQuestion.question,
+                questionId: activeQuestion.id,
+                responses: responses.reduce((acc, r) => ({ ...acc, [r.participant_id]: r.answer }), {}),
+                gmId: activeQuestion.gm_id,
+                gmName: gm?.nickname || "不明",
+                sessionId: activeSession.id,
+              });
+              
+              setHasAnswered(!!myResponse);
+              setCurrentAnswer(myResponse?.answer || "");
+              setIsGM(activeQuestion.gm_id === currentParticipant.id);
+            }
+          }
+        }
+        
         const storedState = localStorage.getItem(`synchro_state_${roomId}`);
         if (storedState) {
           const state = JSON.parse(storedState);
           const now = Date.now();
           const stateTime = new Date(state.timestamp).getTime();
           
-          if (now - stateTime < 30 * 60 * 1000) {
+          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
             setGameState(state.gameState);
             setCurrentQuestion(state.currentQuestion || "");
             setCurrentAnswer(state.currentAnswer || "");
@@ -114,7 +150,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     };
 
     restoreGameState();
-  }, [roomId]);
+  }, [roomId, gameParticipants, currentParticipant]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {

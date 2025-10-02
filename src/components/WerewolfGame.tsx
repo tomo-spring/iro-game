@@ -128,13 +128,46 @@ export function WerewolfGame({
       setIsRestoringState(true);
       
       try {
+        // まずDBから最新のゲーム状態を取得
+        const activeSession = await werewolfService.getActiveSession(roomId);
+        if (activeSession && currentParticipant) {
+          // 自分の役職を取得
+          const assignment = await werewolfService.getAssignment(activeSession.id, currentParticipant.id);
+          
+          if (assignment) {
+            setGameState(prev => ({
+              ...prev,
+              phase: activeSession.phase,
+              session: activeSession,
+              assignment: assignment,
+            }));
+            
+            // 投票フェーズの場合、投票状況を取得
+            if (activeSession.phase === 'vote' || activeSession.phase === 'sudden_death') {
+              const votes = await werewolfService.getVotes(activeSession.id, 1);
+              const myVote = votes.find(v => v.voter_id === currentParticipant.id);
+              
+              setGameState(prev => ({
+                ...prev,
+                votes: votes.reduce((acc, v) => ({ ...acc, [v.voter_id]: v.target_id }), {}),
+              }));
+              
+              setHasVoted(!!myVote);
+              setSelectedVote(myVote?.target_id || null);
+            }
+            
+            setReverseMode(activeSession.reverse_mode);
+          }
+        }
+        
         const storedState = localStorage.getItem(`werewolf_state_${roomId}`);
         if (storedState) {
           const state = JSON.parse(storedState);
           const now = Date.now();
           const stateTime = new Date(state.timestamp).getTime();
           
-          if (now - stateTime < 30 * 60 * 1000) {
+          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
             setGameState(state.gameState);
             setSelectedVote(state.selectedVote || null);
             setHasVoted(state.hasVoted || false);
@@ -155,7 +188,7 @@ export function WerewolfGame({
     };
 
     restoreGameState();
-  }, [roomId]);
+  }, [roomId, currentParticipant]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
