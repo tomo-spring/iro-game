@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Trophy,
   X,
@@ -59,12 +59,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   const [loading, setLoading] = useState(true);
   const [isRestoringState, setIsRestoringState] = useState(true);
 
-  // 回答数同期の状態管理
-  const [responseCounts, setResponseCounts] = useState<{[questionId: string]: number}>({});
-  const [lastSyncTime, setLastSyncTime] = useState<number>(0);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isPeriodicSyncing, setIsPeriodicSyncing] = useState(false);
-
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
     const fetchGameParticipants = async () => {
@@ -79,8 +73,8 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         const current = await roomService.getCurrentParticipantFromRoom(roomId);
         if (current) {
           setCurrentParticipant(current);
+        } else {
         }
-        const channel = supabase.channel(`ranking-game-events-${roomId}`);
       } catch (error) {
       } finally {
         setLoading(false);
@@ -89,44 +83,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
     fetchGameParticipants();
   }, [roomId]);
-
-  // 回答数を定期的に同期する関数
-  const syncResponseCounts = useCallback(async (questionId: string) => {
-    if (!questionId) return;
-    
-    const now = Date.now();
-    // 500ms以内の重複リクエストを防ぐ
-    if (now - lastSyncTime < 500 || isSyncing) return;
-    
-    setIsPeriodicSyncing(true);
-    try {
-      const responses = await gameService.getRankingResponses(questionId);
-      const count = responses.length;
-      
-      setResponseCounts(prev => ({
-        ...prev,
-        [questionId]: count
-      }));
-      setLastSyncTime(now);
-      
-      // ローカル状態も更新
-      if (responses.length > 0) {
-        const responseMap = responses.reduce((acc, r) => ({ 
-          ...acc, 
-          [r.participant_id]: r.rank_choice 
-        }), {});
-        
-        setGameState(prev => ({
-          ...prev,
-          responses: responseMap
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to sync ranking response counts:', error);
-    } finally {
-      setIsPeriodicSyncing(false);
-    }
-  }, [lastSyncTime, isSyncing, isPeriodicSyncing]);
 
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
@@ -167,34 +123,26 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               setHasAnswered(!!myResponse);
               setSelectedRank(myResponse?.rank_choice || null);
               setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
-              
-              // 回答数を同期
-              syncResponseCounts(activeQuestion.id);
             }
           }
-        } else {
-          // 回答送信後に正確な回答数を同期
-          setTimeout(() => {
-            syncResponseCounts(gameState.questionId);
-          }, 500);
+        }
+        
+        const storedState = localStorage.getItem(`ranking_state_${roomId}`);
+        if (storedState) {
+          const state = JSON.parse(storedState);
+          const now = Date.now();
+          const stateTime = new Date(state.timestamp).getTime();
           
-          const storedState = localStorage.getItem(`ranking_state_${roomId}`);
-          if (storedState) {
-            const state = JSON.parse(storedState);
-            const now = Date.now();
-            const stateTime = new Date(state.timestamp).getTime();
-            
-            // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-            if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-              setGameState(state.gameState);
-              setCurrentQuestion(state.currentQuestion || "");
-              setSelectedRank(state.selectedRank || null);
-              setHasAnswered(state.hasAnswered || false);
-              setIsQuestioner(state.isQuestioner || false);
-              setCurrentGameSessionId(state.sessionId || "");
-            } else {
-              localStorage.removeItem(`ranking_state_${roomId}`);
-            }
+          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
+          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
+            setGameState(state.gameState);
+            setCurrentQuestion(state.currentQuestion || "");
+            setSelectedRank(state.selectedRank || null);
+            setHasAnswered(state.hasAnswered || false);
+            setIsQuestioner(state.isQuestioner || false);
+            setCurrentGameSessionId(state.sessionId || "");
+          } else {
+            localStorage.removeItem(`ranking_state_${roomId}`);
           }
         }
       } catch (error) {
@@ -206,7 +154,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     };
 
     restoreGameState();
-  }, [roomId, gameParticipants, currentParticipant, syncResponseCounts, gameState.questionId]);
+  }, [roomId, gameParticipants, currentParticipant]);
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
@@ -229,8 +177,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   useEffect(() => {
     if (!roomId) return;
 
-    // 統一されたチャンネル名を使用
-    const channelName = `ranking-game-${roomId}`;
+    const channelName = `ranking-game-events-${roomId}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "ranking_questioner_selected" }, (payload) => {
@@ -264,20 +211,10 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
           setCurrentGameSessionId(payload.payload.sessionId);
           setHasAnswered(false);
           setSelectedRank(null);
-          
-          // 質問が送信されたら回答数を同期開始
-          if (payload.payload.questionId) {
-            setTimeout(() => {
-              syncResponseCounts(payload.payload.questionId);
-            }, 500);
-          }
         }
       })
       .on("broadcast", { event: "ranking_answer_submitted" }, (payload) => {
         if (payload.payload) {
-          if (isSyncing || isPeriodicSyncing) return; // 同期中は処理をスキップ
-          
-          // ローカル状態を即座に更新
           setGameState((prev) => ({
             ...prev,
             responses: {
@@ -285,13 +222,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               [payload.payload.participantId]: payload.payload.rankChoice,
             },
           }));
-          
-          // 回答数カウントも更新
-          if (!isSyncing && !isPeriodicSyncing) {
-            setTimeout(() => {
-              syncResponseCounts(gameState.questionId);
-            }, 200);
-          }
         }
       })
       .on("broadcast", { event: "ranking_show_results" }, () => {
@@ -311,9 +241,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         setHasAnswered(false);
         setSelectedRank(null);
         setIsQuestioner(false);
-        
-        // 新しいラウンド開始時に回答数をリセット
-        setResponseCounts({});
       })
       .on("broadcast", { event: "game_end" }, async () => {
         if (currentGameSessionId) {
@@ -333,24 +260,16 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       })
       .subscribe();
 
-    // 定期的な回答数同期（5秒間隔）
-    const syncInterval = setInterval(() => {
-      if (gameState.questionId && gameState.phase === "answering" && !isSyncing && !isPeriodicSyncing) {
-        syncResponseCounts(gameState.questionId);
-      }
-    }, 5000); // 5秒間隔に戻す
-
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(syncInterval);
     };
-  }, [roomId, currentGameSessionId, onClose, currentParticipant, gameState.questionId, gameState.phase, syncResponseCounts, gameState.responses, isSyncing, isPeriodicSyncing]);
+  }, [roomId, currentGameSessionId, onClose, currentParticipant]);
 
   const handleBecomeQuestioner = async () => {
     if (!currentParticipant) return;
 
     try {
-      const channelName = `ranking-game-${roomId}`;
+      const channelName = `ranking-game-events-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true },
@@ -378,11 +297,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         questionerId: currentParticipant.id,
         questionerName: currentParticipant.nickname,
       }));
-      
-      // チャンネルをクリーンアップ
-      setTimeout(() => {
-        supabase.removeChannel(channel);
-      }, 2000);
     } catch (error) {
       alert(
         `質問者の選択に失敗しました: ${
@@ -428,7 +342,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setHasAnswered(false);
       setSelectedRank(null);
 
-      const channelName = `ranking-game-${roomId}`;
+      const channelName = `ranking-game-events-${roomId}`;
       const channel = supabase.channel(channelName, {
         config: {
           broadcast: { self: true, ack: true },
@@ -501,24 +415,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     )
       return;
 
-    // 楽観的更新
     setHasAnswered(true);
-    setGameState((prev) => ({
-      ...prev,
-      responses: {
-        ...prev.responses,
-        [currentParticipant.id]: selectedRank,
-      },
-    }));
-    
-    // 回答数も即座に更新
-    setResponseCounts(prev => ({
-      ...prev,
-      [gameState.questionId]: Object.keys({
-        ...gameState.responses,
-        [currentParticipant.id]: selectedRank,
-      }).length
-    }));
 
     try {
       await gameService.submitRankingResponse(
@@ -527,7 +424,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         selectedRank
       );
 
-      const channelName = `ranking-game-${roomId}`;
+      const channelName = `ranking-game-events-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -536,32 +433,18 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
         payload: {
           participantId: currentParticipant.id,
           rankChoice: selectedRank,
-          questionId: gameState.questionId,
         },
       });
 
-      // チャンネルをクリーンアップ
-      setTimeout(() => {
-        supabase.removeChannel(channel);
-      }, 2000);
-      
-    } catch (error) {
-      // エラーの場合は楽観的更新を取り消し
-      setHasAnswered(false);
-      setGameState((prev) => {
-        const newResponses = { ...prev.responses };
-        delete newResponses[currentParticipant.id];
-        return {
-          ...prev,
-          responses: newResponses,
-        };
-      });
-      
-      setResponseCounts(prev => ({
+      setGameState((prev) => ({
         ...prev,
-        [gameState.questionId]: Math.max(0, (prev[gameState.questionId] || 0) - 1)
+        responses: {
+          ...prev.responses,
+          [currentParticipant.id]: selectedRank,
+        },
       }));
-      
+    } catch (error) {
+      setHasAnswered(false);
       alert(
         `回答の送信に失敗しました: ${
           error instanceof Error ? error.message : "もう一度お試しください。"
@@ -572,7 +455,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
   const handleShowResults = async () => {
     try {
-      const channelName = `ranking-game-${roomId}`;
+      const channelName = `ranking-game-events-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -587,7 +470,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
   const handleNewRound = async () => {
     try {
-      const channelName = `ranking-game-${roomId}`;
+      const channelName = `ranking-game-events-${roomId}`;
       const channel = supabase.channel(channelName);
 
       const result = await channel.send({
@@ -609,14 +492,10 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
       setHasAnswered(false);
       setSelectedRank(null);
       setIsQuestioner(false);
-      
-      // 新しいラウンド開始時に回答数をリセット
-      setResponseCounts({});
     } catch (error) {}
   };
 
-  // 回答数は同期された値を優先的に使用
-  const totalResponses = gameState.questionId ? (responseCounts[gameState.questionId] || Object.keys(gameState.responses).length) : 0;
+  const totalResponses = Object.keys(gameState.responses).length;
   const allAnswered = totalResponses === gameParticipants.length;
 
   // 結果分析
