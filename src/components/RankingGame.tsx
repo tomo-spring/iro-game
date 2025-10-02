@@ -57,7 +57,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   );
   const [gameParticipants, setGameParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRestoringState, setIsRestoringState] = useState(true);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -87,25 +86,20 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
     const restoreGameState = async () => {
-      if (!roomId || !gameParticipants.length || !currentParticipant) return;
-      
-      setIsRestoringState(true);
+      if (!roomId || !gameParticipants.length || !currentParticipant) {
+        return;
+      }
       
       try {
-        // まずDBから最新のゲーム状態を取得
+        console.log("🔄 Ranking ゲーム状態を復元中...");
         const activeSession = await gameService.getActiveGameSession(roomId);
-        if (activeSession && activeSession.game_type === 'ranking') {
+        if (activeSession && activeSession.game_type === "ranking") {
           setCurrentGameSessionId(activeSession.id);
           
-          // アクティブな質問があるかチェック
           const { rankingQuestions } = await gameService.getActiveQuestions(activeSession.id);
           if (rankingQuestions.length > 0) {
             const activeQuestion = rankingQuestions[0];
-            
-            // 質問者情報を取得
             const questioner = gameParticipants.find(p => p.id === activeQuestion.questioner_id);
-            
-            // 自分の回答状況をチェック
             const responses = await gameService.getRankingResponses(activeQuestion.id);
             const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
             
@@ -123,34 +117,11 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
             setSelectedRank(myResponse?.rank_choice || null);
             setIsQuestioner(activeQuestion.questioner_id === currentParticipant.id);
             
-            console.log("✅ Ranking ゲーム状態を復元しました");
-            return; // DBから復元できた場合はローカルストレージのチェックは不要
-          }
-        }
-        
-        const storedState = localStorage.getItem(`ranking_state_${roomId}`);
-        if (storedState) {
-          const state = JSON.parse(storedState);
-          const now = Date.now();
-          const stateTime = new Date(state.timestamp).getTime();
-          
-          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-            setGameState(state.gameState);
-            setCurrentQuestion(state.currentQuestion || "");
-            setSelectedRank(state.selectedRank || null);
-            setHasAnswered(state.hasAnswered || false);
-            setIsQuestioner(state.isQuestioner || false);
-            setCurrentGameSessionId(state.sessionId || "");
-          } else {
-            localStorage.removeItem(`ranking_state_${roomId}`);
+            console.log("✅ Ranking ゲーム状態復元完了");
           }
         }
       } catch (error) {
-        console.error('Failed to restore ranking game state:', error);
-        localStorage.removeItem(`ranking_state_${roomId}`);
-      } finally {
-        setIsRestoringState(false);
+        console.error("ゲーム状態復元エラー:", error);
       }
     };
 
@@ -159,7 +130,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
-    if (!roomId || isRestoringState) return;
+    if (!roomId) return;
     
     const stateToSave = {
       gameState,
@@ -172,7 +143,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
     };
     
     localStorage.setItem(`ranking_state_${roomId}`, JSON.stringify(stateToSave));
-  }, [gameState, currentQuestion, selectedRank, hasAnswered, isQuestioner, currentGameSessionId, roomId, isRestoringState]);
 
   // リアルタイム同期
   useEffect(() => {
@@ -509,7 +479,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
   );
   const duplicateRanks = [...new Set(duplicates)];
 
-  if (loading || isRestoringState) {
+  if (loading) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -519,7 +489,7 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
           <p className="text-black font-bold text-lg">
-            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
+            ゲームを準備中...
           </p>
         </div>
       </div>

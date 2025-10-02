@@ -53,7 +53,6 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   );
   const [gameParticipants, setGameParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRestoringState, setIsRestoringState] = useState(true);
 
   // ゲーム開始時に参加者をDBから取得
   useEffect(() => {
@@ -83,25 +82,20 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   // ページ読み込み時にゲーム状態を復元
   useEffect(() => {
     const restoreGameState = async () => {
-      if (!roomId || !gameParticipants.length || !currentParticipant) return;
-      
-      setIsRestoringState(true);
+      if (!roomId || !gameParticipants.length || !currentParticipant) {
+        return;
+      }
       
       try {
-        // まずDBから最新のゲーム状態を取得
+        console.log("🔄 Synchro ゲーム状態を復元中...");
         const activeSession = await gameService.getActiveGameSession(roomId);
-        if (activeSession && activeSession.game_type === 'synchro') {
+        if (activeSession && activeSession.game_type === "synchro") {
           setCurrentGameSessionId(activeSession.id);
           
-          // アクティブな質問があるかチェック
           const { synchroQuestions } = await gameService.getActiveQuestions(activeSession.id);
           if (synchroQuestions.length > 0) {
             const activeQuestion = synchroQuestions[0];
-            
-            // GM情報を取得
             const gm = gameParticipants.find(p => p.id === activeQuestion.gm_id);
-            
-            // 自分の回答状況をチェック
             const responses = await gameService.getSynchroResponses(activeQuestion.id);
             const myResponse = responses.find(r => r.participant_id === currentParticipant.id);
             
@@ -119,34 +113,11 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             setCurrentAnswer(myResponse?.answer || "");
             setIsGM(activeQuestion.gm_id === currentParticipant.id);
             
-            console.log("✅ Synchro ゲーム状態を復元しました");
-            return; // DBから復元できた場合はローカルストレージのチェックは不要
-          }
-        }
-        
-        const storedState = localStorage.getItem(`synchro_state_${roomId}`);
-        if (storedState) {
-          const state = JSON.parse(storedState);
-          const now = Date.now();
-          const stateTime = new Date(state.timestamp).getTime();
-          
-          // 状態が30分以内で、かつDBの状態と矛盾しない場合のみ復元
-          if (now - stateTime < 30 * 60 * 1000 && !activeSession) {
-            setGameState(state.gameState);
-            setCurrentQuestion(state.currentQuestion || "");
-            setCurrentAnswer(state.currentAnswer || "");
-            setHasAnswered(state.hasAnswered || false);
-            setIsGM(state.isGM || false);
-            setCurrentGameSessionId(state.sessionId || "");
-          } else {
-            localStorage.removeItem(`synchro_state_${roomId}`);
+            console.log("✅ Synchro ゲーム状態復元完了");
           }
         }
       } catch (error) {
-        console.error('Failed to restore synchro game state:', error);
-        localStorage.removeItem(`synchro_state_${roomId}`);
-      } finally {
-        setIsRestoringState(false);
+        console.error("ゲーム状態復元エラー:", error);
       }
     };
 
@@ -155,7 +126,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
 
   // ゲーム状態が変更されたときにローカルストレージに保存
   useEffect(() => {
-    if (!roomId || isRestoringState) return;
+    if (!roomId) return;
     
     const stateToSave = {
       gameState,
@@ -168,7 +139,6 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
     };
     
     localStorage.setItem(`synchro_state_${roomId}`, JSON.stringify(stateToSave));
-  }, [gameState, currentQuestion, currentAnswer, hasAnswered, isGM, currentGameSessionId, roomId, isRestoringState]);
 
   // リアルタイム同期
   useEffect(() => {
@@ -501,7 +471,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
   const isSuccess = uniqueAnswers.size === 1 && responseValues.length > 0;
   const mostCommonAnswer = responseValues.length > 0 ? responseValues[0] : "";
 
-  if (loading || isRestoringState) {
+  if (loading) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center p-4 z-50">
         <div className="bg-white border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
@@ -511,7 +481,7 @@ export function SynchroGame({ roomId, sessionId, onClose }: SynchroGameProps) {
             <div className="w-4 h-4 bg-blue-500 border border-black animate-pulse"></div>
           </div>
           <p className="text-black font-bold text-lg">
-            {loading ? "ゲームを準備中..." : "ゲーム状態を復元中..."}
+            ゲームを準備中...
           </p>
         </div>
       </div>
