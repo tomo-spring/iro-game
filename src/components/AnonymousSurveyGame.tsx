@@ -453,7 +453,6 @@ export function AnonymousSurveyGame({
           broadcast: { self: false, ack: isMobile }, // モバイルでは確認応答を有効化
         },
       });
-      const channel = supabase.channel(channelName);
       // モバイルでは接続確認
       if (isMobile) {
         await new Promise((resolve) => {
