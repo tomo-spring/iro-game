@@ -5,6 +5,7 @@ import { Eye, Trophy, WholeWord as Wolf } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useRoomParticipants } from "../hooks/useRoomParticipants";
 import { roomService } from "../services/roomService";
+import { gameService } from "../services/gameService";
 import { GameInstructions } from "./GameInstructions";
 import { AnonymousSurveyGame } from "./AnonymousSurveyGame";
 import { RankingGame } from "./RankingGame";
@@ -50,33 +51,73 @@ export function RoomLobby() {
     return () => clearInterval(interval);
   }, []);
 
-  // ページ読み込み時に進行中のゲームをチェック
+  // ページ読み込み時に進行中のゲームをチェック（データベース + ローカルストレージ）
   useEffect(() => {
     const checkActiveGame = async () => {
       if (!roomId) return;
-      
+
       setIsCheckingActiveGame(true);
-      
+
       try {
-        // ローカルストレージから進行中のゲーム情報を取得
+        // まずデータベースからアクティブなゲームセッションを取得
+        const activeSession = await gameService.getActiveGameSession(roomId);
+
+        if (activeSession) {
+          console.log("✅ アクティブなゲームセッション検出:", activeSession);
+
+          // ゲームタイプを判定してゲーム画面を表示
+          const gameType = activeSession.game_type as
+            | "anonymous_survey"
+            | "ranking"
+            | "synchro"
+            | "werewolf";
+
+          setSelectedGameType(gameType);
+          setGameSessionId(activeSession.id);
+          setGameActive(true);
+
+          // ローカルストレージも更新
+          const gameState = {
+            gameType: gameType,
+            sessionId: activeSession.id,
+            startTime: activeSession.created_at,
+            roomId: roomId,
+          };
+          localStorage.setItem(
+            `active_game_${roomId}`,
+            JSON.stringify(gameState)
+          );
+
+          return; // データベースに存在する場合は、ローカルストレージのチェックは不要
+        }
+
+        // データベースにアクティブなセッションがない場合、ローカルストレージをチェック
         const storedGameState = localStorage.getItem(`active_game_${roomId}`);
         if (storedGameState) {
           const gameState = JSON.parse(storedGameState);
           const now = Date.now();
           const gameStartTime = new Date(gameState.startTime).getTime();
-          
+
           // ゲーム開始から30分以内なら有効とみなす
           if (now - gameStartTime < 30 * 60 * 1000) {
+            console.log(
+              "📦 ローカルストレージからゲーム状態を復元:",
+              gameState
+            );
             setSelectedGameType(gameState.gameType);
             setGameSessionId(gameState.sessionId);
             setGameActive(true);
           } else {
             // 古いゲーム状態を削除
+            console.log("🗑️ 古いゲーム状態を削除");
             localStorage.removeItem(`active_game_${roomId}`);
           }
+        } else {
+          console.log("ℹ️ 進行中のゲームはありません");
         }
       } catch (error) {
-        console.error('Failed to check active game:', error);
+        console.error("Failed to check active game:", error);
+        // エラー時はローカルストレージもクリア
         localStorage.removeItem(`active_game_${roomId}`);
       } finally {
         setIsCheckingActiveGame(false);
@@ -100,10 +141,13 @@ export function RoomLobby() {
             gameType: payload.payload.gameType,
             sessionId: payload.payload.sessionId,
             startTime: new Date().toISOString(),
-            roomId: roomId
+            roomId: roomId,
           };
-          localStorage.setItem(`active_game_${roomId}`, JSON.stringify(gameState));
-          
+          localStorage.setItem(
+            `active_game_${roomId}`,
+            JSON.stringify(gameState)
+          );
+
           setSelectedGameType(payload.payload.gameType);
           setGameSessionId(payload.payload.sessionId);
           setGameActive(true);
