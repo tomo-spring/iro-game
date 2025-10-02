@@ -279,18 +279,8 @@ export const roomService = {
   async cleanupInactiveParticipants(roomId: string) {
     return withLock(`cleanup-${roomId}`, async () => {
       try {
-        // Remove participants inactive for more than 2 minutes
-        const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-
-        const { error } = await supabase
-          .from("participants")
-          .delete()
-          .eq("room_id", roomId)
-          .lt("last_seen", cutoff);
-
-        if (error) {
-          console.error("Error cleaning up inactive participants:", error);
-        }
+        // Cleanup disabled - participants are no longer automatically removed
+        console.log("Participant cleanup is disabled for room:", roomId);
       } catch (error) {
         console.error("Failed to cleanup inactive participants:", error);
       }
