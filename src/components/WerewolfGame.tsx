@@ -414,8 +414,27 @@ export function WerewolfGame({
       // 役職割り当て
       await werewolfService.assignRoles(session.id, gameParticipants);
 
+      // まずローカル状態を更新
+      handleGameStart(session.id, reverseMode);
+
       // ゲーム開始をブロードキャスト
-      const channel = supabase.channel(`werewolf-game-events-${roomId}`);
+      const channel = supabase.channel(`werewolf-game-events-${roomId}`, {
+        config: {
+          broadcast: { self: true, ack: true },
+          presence: { key: roomId }
+        }
+      });
+
+      // チャンネルが準備できるまで待機
+      await new Promise((resolve) => {
+        const subscription = channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            resolve(void 0);
+          }
+        });
+        setTimeout(() => resolve(void 0), 2000);
+      });
+
       await channel.send({
         type: "broadcast",
         event: "werewolf_game_start",
@@ -425,8 +444,10 @@ export function WerewolfGame({
         },
       });
 
-      // ローカル状態更新
-      handleGameStart(session.id, reverseMode);
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 5000);
+
     } catch {
       alert("ゲームの開始に失敗しました。");
     }

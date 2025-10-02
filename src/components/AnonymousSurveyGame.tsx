@@ -336,11 +336,37 @@ export function AnonymousSurveyGame({
         currentParticipant.id
       );
 
-      const channelName = `game-events-${roomId}`;
-      const channel = supabase.channel(channelName);
+      // まずローカル状態を更新（即座に画面遷移）
+      setGameState((prev) => ({
+        ...prev,
+        phase: "answering",
+        question: currentQuestion.trim(),
+        questionId: questionData.id,
+        questionerId: currentParticipant.id,
+        questionerName: currentParticipant.nickname,
+        sessionId: sessionId,
+        responses: {},
+      }));
+      setHasAnswered(false);
 
-      // 少し待ってからブロードキャスト
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const channelName = `game-events-${roomId}`;
+      const channel = supabase.channel(channelName, {
+        config: {
+          broadcast: { self: true, ack: true },
+          presence: { key: roomId }
+        }
+      });
+
+      // チャンネルが準備できるまで待機
+      await new Promise((resolve) => {
+        const subscription = channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            resolve(void 0);
+          }
+        });
+        // タイムアウト設定
+        setTimeout(() => resolve(void 0), 2000);
+      });
 
       const result = await channel.send({
         type: "broadcast",
@@ -354,18 +380,32 @@ export function AnonymousSurveyGame({
         },
       });
 
-      // ローカル状態も更新
-      setGameState((prev) => ({
-        ...prev,
-        phase: "answering",
-        question: currentQuestion.trim(),
-        questionId: questionData.id,
-        questionerId: currentParticipant.id,
-        questionerName: currentParticipant.nickname,
-        sessionId: sessionId,
-        responses: {},
-      }));
-      setHasAnswered(false);
+      // ブロードキャストが失敗した場合でも、少し待ってから再試行
+      if (result !== 'ok') {
+        setTimeout(async () => {
+          try {
+            await channel.send({
+              type: "broadcast",
+              event: "question_submitted",
+              payload: {
+                question: currentQuestion.trim(),
+                questionId: questionData.id,
+                questionerId: currentParticipant.id,
+                questionerName: currentParticipant.nickname,
+                sessionId: sessionId,
+              },
+            });
+          } catch (retryError) {
+            console.warn('Broadcast retry failed:', retryError);
+          }
+        }, 1000);
+      }
+
+      // チャンネルをクリーンアップ
+      setTimeout(() => {
+        supabase.removeChannel(channel);
+      }, 5000);
+
     } catch (error) {
       alert(
         `質問の送信に失敗しました: ${
