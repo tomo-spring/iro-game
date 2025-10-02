@@ -289,17 +289,6 @@ export function AnonymousSurveyGame({
               syncResponseCounts(gameState.questionId);
             }, 200);
           }
-              [gameState.questionId]: Object.keys({
-                ...gameState.responses,
-                [payload.payload.participantId]: payload.payload.answer,
-              }).length
-            }));
-            
-            // 少し遅延させて正確な回答数を同期
-            setTimeout(() => {
-              syncResponseCounts(gameState.questionId);
-            }, 200);
-          }
         }
       })
       .on("broadcast", { event: "show_results" }, () => {

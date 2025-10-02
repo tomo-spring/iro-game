@@ -291,17 +291,6 @@ export function RankingGame({ roomId, sessionId, onClose }: RankingGameProps) {
               syncResponseCounts(gameState.questionId);
             }, 200);
           }
-              [gameState.questionId]: Object.keys({
-                ...gameState.responses,
-                [payload.payload.participantId]: payload.payload.rankChoice,
-              }).length
-            }));
-            
-            // 少し遅延させて正確な回答数を同期
-            setTimeout(() => {
-              syncResponseCounts(gameState.questionId);
-            }, 200);
-          }
         }
       })
       .on("broadcast", { event: "ranking_show_results" }, () => {
