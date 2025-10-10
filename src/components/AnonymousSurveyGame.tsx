@@ -833,15 +833,14 @@ export function AnonymousSurveyGame({
                   </p>
                 </div>
               )}
-              {gameState.questionId && (
+              {gameState.questionId && allAnswered && (
                 <div className="text-center">
                   <button
                     type="button"
                     onClick={handleShowResults}
-                    className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors"
+                    className="bg-blue-500 text-white py-3 sm:py-4 px-6 sm:px-8 border-2 sm:border-3 border-black font-bold text-base sm:text-lg hover:bg-blue-600 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] sm:hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] sm:hover:translate-x-[2px] sm:hover:translate-y-[2px] animate-pulse"
                   >
-                    結果を表示 ({totalResponses}/{gameParticipants.length}
-                    人回答済み)
+                    回答を見る
                   </button>
                 </div>
               )}
